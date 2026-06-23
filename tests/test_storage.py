@@ -9,6 +9,9 @@ key is rejected (not clamped), a pre-turn absolute key still resolves (so old
 albums survive the rename), and selecting a backend that can't run blows up at
 startup rather than writing nowhere.
 """
+import sys
+import types
+
 import pytest
 
 from mnemosyne import config, storage
@@ -104,4 +107,170 @@ def test_r2_backend_without_sdk_fails_loud(monkeypatch):
         pytest.skip("boto3 is installed; this pins the no-SDK fail-loud path")
     monkeypatch.setattr(config, "STORAGE_BACKEND", "r2")
     with pytest.raises(RuntimeError, match="pip install boto3"):
+        storage.get_storage()
+
+
+# --- R2 driver, exercised against a fake S3 client ---------------------------
+#
+# The R2 backend ships dormant (no live bucket, boto3 absent from the dev env), but
+# "dormant" must not mean "unverified" (R9/R21): a backend that silently misbehaves
+# the day creds land is worse than none. So we inject a fake boto3/botocore over an
+# in-memory bucket and drive the same contract the local driver passes. The SDK is
+# faked via sys.modules, NOT installed — so the no-SDK fail-loud test above stays
+# honest (boto3 really is absent everywhere else).
+
+
+class _ClientError(Exception):
+    """Stand-in for botocore.exceptions.ClientError: an error carrying the AWS
+    error code in .response, which exists() inspects to tell 'missing' from 'broke'."""
+
+    def __init__(self, code: str):
+        self.response = {"Error": {"Code": code}}
+        super().__init__(code)
+
+
+class _FakeS3:
+    """An in-memory S3 client over one dict 'bucket' — only the calls R2Storage
+    actually makes are implemented, each mirroring boto3's real signature."""
+
+    def __init__(self, bucket: dict):
+        self._bucket = bucket
+
+    def head_object(self, Bucket, Key):
+        if Key not in self._bucket:
+            raise _ClientError("404")
+        return {"ContentLength": len(self._bucket[Key])}
+
+    def put_object(self, Bucket, Key, Body):
+        self._bucket[Key] = Body
+        return {}
+
+    def download_fileobj(self, Bucket, Key, fileobj):
+        if Key not in self._bucket:
+            raise _ClientError("NoSuchKey")
+        fileobj.write(self._bucket[Key])
+
+    def generate_presigned_url(self, op, Params, ExpiresIn):
+        return f"https://signed.r2.test/{Params['Key']}?exp={ExpiresIn}"
+
+    def get_paginator(self, name):
+        bucket = self._bucket
+
+        class _Paginator:
+            def paginate(self, Bucket, Prefix):
+                hits = [{"Key": k} for k in sorted(bucket) if k.startswith(Prefix)]
+                yield {"Contents": hits}
+
+        return _Paginator()
+
+    def delete_objects(self, Bucket, Delete):
+        for o in Delete["Objects"]:
+            self._bucket.pop(o["Key"], None)
+        return {}
+
+
+@pytest.fixture
+def r2(monkeypatch):
+    """Force the R2 backend with a fake SDK injected; yields the backing dict (the
+    'bucket') so a test can inspect what landed. Resets the memoized singleton so the
+    autouse local override can't leak in, and so re-pointing config inside a test can
+    rebuild the driver."""
+    bucket: dict = {}
+
+    fake_boto3 = types.ModuleType("boto3")
+    fake_boto3.client = lambda *a, **k: _FakeS3(bucket)
+    fake_botocore = types.ModuleType("botocore")
+    fake_exc = types.ModuleType("botocore.exceptions")
+    fake_exc.ClientError = _ClientError
+    fake_botocore.exceptions = fake_exc
+    monkeypatch.setitem(sys.modules, "boto3", fake_boto3)
+    monkeypatch.setitem(sys.modules, "botocore", fake_botocore)
+    monkeypatch.setitem(sys.modules, "botocore.exceptions", fake_exc)
+
+    monkeypatch.setattr(config, "STORAGE_BACKEND", "r2")
+    monkeypatch.setattr(config, "R2_ENDPOINT", "https://acct.r2.cloudflarestorage.com")
+    monkeypatch.setattr(config, "R2_BUCKET", "mnemo-test")
+    monkeypatch.setattr(config, "R2_ACCESS_KEY_ID", "ak")
+    monkeypatch.setattr(config, "R2_SECRET_ACCESS_KEY", "sk")
+    monkeypatch.setattr(config, "R2_SIGNED_URL_TTL", 900)
+    monkeypatch.setattr(config, "R2_PUBLIC_BASE_URL", None)
+    storage._instance = None
+    yield bucket
+    storage._instance = None
+
+
+def test_r2_put_exists_and_open_round_trip(r2):
+    store = storage.get_storage()
+    assert isinstance(store, storage.R2Storage)
+
+    key = store.put("a12/sunset.jpg", b"R2 bytes")
+    assert key == "a12/sunset.jpg"
+    assert r2["a12/sunset.jpg"] == b"R2 bytes"  # the bytes entered the bucket via put
+    assert store.exists("a12/sunset.jpg") is True
+    assert store.exists("a12/missing.jpg") is False
+
+    with store.open_path("a12/sunset.jpg") as p:
+        assert p.read_bytes() == b"R2 bytes"
+    # The remote driver downloads to a temp file and cleans it up on block exit.
+    assert not p.exists()
+
+
+def test_r2_signed_url_presigns_when_no_public_base(r2):
+    store = storage.get_storage()
+    store.put("a1/x.jpg", b"x")
+    url = store.signed_url("a1/x.jpg")
+    # With no public CDN base, the browser gets a time-limited presigned GET.
+    assert url.startswith("https://signed.r2.test/a1/x.jpg")
+    assert "exp=900" in url
+
+
+def test_r2_signed_url_prefers_public_base(r2, monkeypatch):
+    # A public bucket base means we hand out a plain CDN URL, no presign round-trip.
+    monkeypatch.setattr(config, "R2_PUBLIC_BASE_URL", "https://cdn.example.com/")
+    storage._instance = None  # rebuild so __init__ re-reads the base
+    store = storage.get_storage()
+    assert store.signed_url("a1/x.jpg") == "https://cdn.example.com/a1/x.jpg"
+
+
+def test_r2_delete_prefix_scopes_to_album(r2):
+    store = storage.get_storage()
+    store.put("a3/one.jpg", b"1")
+    store.put("a3/two.jpg", b"2")
+    store.put("a4/keep.jpg", b"k")
+
+    store.delete_prefix("a3/")
+
+    assert store.exists("a3/one.jpg") is False
+    assert store.exists("a3/two.jpg") is False
+    assert store.exists("a4/keep.jpg") is True  # sibling album untouched
+
+
+def test_r2_local_path_refuses(r2):
+    # R2 always serves via signed_url, so the web route never asks it for a disk
+    # path; if it somehow does, that's a bug and must fail loud, not return junk.
+    store = storage.get_storage()
+    with pytest.raises(storage.StorageError, match="no local path"):
+        store.local_path("a1/x.jpg")
+
+
+def test_r2_exists_reraises_a_non_404_error(r2, monkeypatch):
+    # A real backend fault (auth, outage) must propagate — swallowing it as "object
+    # doesn't exist" would mask an outage as a missing photo (R21).
+    store = storage.get_storage()
+
+    def boom(self, Bucket, Key):
+        raise _ClientError("InternalError")
+
+    monkeypatch.setattr(_FakeS3, "head_object", boom)
+    with pytest.raises(_ClientError) as ei:
+        store.exists("a1/x.jpg")
+    assert ei.value.response["Error"]["Code"] == "InternalError"
+
+
+def test_r2_missing_config_fails_loud(r2, monkeypatch):
+    # SDK present but a cred missing must still blow up at construction, naming the
+    # absent var, never quietly half-configured.
+    monkeypatch.setattr(config, "R2_BUCKET", None)
+    storage._instance = None
+    with pytest.raises(RuntimeError, match="R2_BUCKET"):
         storage.get_storage()
