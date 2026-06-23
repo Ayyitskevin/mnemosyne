@@ -5,14 +5,15 @@ and record (a) a short scene label and (b) a hero_score (0..1) for how album-
 cover-worthy the shot is. THIS is the step that makes mnemosyne more than a
 ChatGPT wrapper — it reasons about the actual pixels, not a typed description.
 
-Runs entirely on mickey: the image bytes go to localhost Ollama and nowhere else,
-so "we never train on / never upload your images" is true by construction.
+Default path runs entirely on mickey: the image bytes go to localhost Ollama and
+nowhere off the local fleet, so "we never train on your images / never send them to
+a third party" holds by construction.
 
-Phase 3: if config.ARGUS_URL is set, analyze_one delegates to argus service
-(path on shared disk, or multipart upload when MNEMOSYNE_ARGUS_DELEGATION_MODE=upload).
-This provides
-the integration adapter path without loading heavy vision models directly in
-mnemosyne (keep ARGUS_VISION_BACKEND=mock on argus side).
+Phase 3: if config.ARGUS_URL is set, analyze_one delegates to the (self-hosted) argus
+service — a shared-disk path, or a multipart upload of the bytes to argus when
+MNEMOSYNE_ARGUS_DELEGATION_MODE=upload. Either way the image stays inside your own
+infrastructure; this provides the integration adapter path without loading heavy
+vision models directly in mnemosyne (keep ARGUS_VISION_BACKEND=mock on argus side).
 """
 from __future__ import annotations
 
