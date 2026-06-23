@@ -26,11 +26,12 @@ SECRET_KEY = os.environ.get("MNEMOSYNE_SECRET_KEY") or os.urandom(32).hex()
 # disk, so this is permanent storage, not scratch — gitignored, per-machine.
 UPLOAD_DIR = Path(os.environ.get("MNEMOSYNE_UPLOAD_DIR", "uploads"))
 
-# Cap on photos per web upload. The create-album route runs the whole vision
-# pipeline inline (small-and-sync), so a giant gallery would hang the request —
-# this keeps a browser submit bounded until an async job runner exists. The CLI
-# `build` path has no such cap (it's a local operator, not a web stranger).
-MAX_ALBUM_UPLOAD = int(os.environ.get("MNEMOSYNE_MAX_ALBUM_UPLOAD", "25"))
+# Cap on photos per web upload. The vision pipeline now runs in the background
+# worker, not in the request, so this is no longer about request timeouts — it's
+# a sanity bound on one submit (disk + a single album's queue time), sized for a
+# real wedding/event gallery. The CLI `build` path has no cap (local operator,
+# not a web stranger).
+MAX_ALBUM_UPLOAD = int(os.environ.get("MNEMOSYNE_MAX_ALBUM_UPLOAD", "500"))
 
 # The local Ollama fleet on mickey. Phase 0 runs ENTIRELY on-box — images are
 # analyzed here and never leave the machine, so "we don't train on your images"

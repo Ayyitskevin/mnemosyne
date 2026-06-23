@@ -19,6 +19,9 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row              # rows act like dicts: row["path"]
     conn.execute("PRAGMA journal_mode = WAL")   # readers don't block the writer
     conn.execute("PRAGMA foreign_keys = ON")    # actually enforce REFERENCES
+    conn.execute("PRAGMA busy_timeout = 5000")  # wait up to 5s for a lock instead
+    # of erroring — the background worker and request handlers now write the same
+    # file concurrently, and WAL still allows only one writer at a time.
     return conn
 
 

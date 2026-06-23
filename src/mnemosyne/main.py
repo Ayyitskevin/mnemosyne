@@ -30,7 +30,18 @@ from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
-from mnemosyne import albums, auth, config, db, edits, export, ingest, pipeline, waitlist
+from mnemosyne import (
+    albums,
+    auth,
+    config,
+    db,
+    edits,
+    export,
+    ingest,
+    pipeline,
+    waitlist,
+)
+from mnemosyne.worker import AlbumWorker
 
 TEMPLATES = Jinja2Templates(
     directory=str(Path(__file__).resolve().parents[2] / "templates")
@@ -42,7 +53,16 @@ async def lifespan(app: FastAPI):
     conn = db.connect(config.DB_PATH)
     db.migrate(conn)
     conn.close()
-    yield
+    # Start the background album worker. It recovers any album left mid-build by a
+    # previous shutdown, then drains 'pending' uploads. Held on app.state so the
+    # upload route can wake it the instant a new album is enqueued.
+    worker = AlbumWorker(config.DB_PATH)
+    worker.start()
+    app.state.worker = worker
+    try:
+        yield
+    finally:
+        worker.stop()
 
 
 app = FastAPI(title="mnemosyne", lifespan=lifespan)
@@ -81,6 +101,15 @@ def require_user(user: dict | None = Depends(current_user)) -> dict:
     if user is None:
         raise HTTPException(status_code=401, detail="login required")
     return user
+
+
+def _wake_worker(request: Request) -> None:
+    """Nudge the background worker to pick up a just-enqueued album immediately.
+    No-op if there's no worker on app.state (e.g. tests that don't run lifespan) —
+    the album stays 'pending' and would be drained by a real worker's poll."""
+    worker = getattr(request.app.state, "worker", None)
+    if worker is not None:
+        worker.notify()
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -275,10 +304,11 @@ def create_album(
         )
 
     album_name = name.strip() or "Untitled album"
-    result = pipeline.build_album(
+    album_id = pipeline.enqueue_album(
         conn, name=album_name, source_dir=dest_dir, owner_id=user["id"]
     )
-    return RedirectResponse(f"/albums/{result['album_id']}", status_code=303)
+    _wake_worker(request)
+    return RedirectResponse(f"/albums/{album_id}", status_code=303)
 
 
 @app.get("/albums/{album_id}", response_class=HTMLResponse)
@@ -288,14 +318,36 @@ def show_album(
     user: dict = Depends(require_user),
     conn: sqlite3.Connection = Depends(get_conn),
 ):
-    data = albums.album_for_render(conn, album_id, user["id"])
-    if data is None:
+    album = albums.get_album(conn, album_id, user["id"])
+    if album is None:
         raise HTTPException(status_code=404, detail="no such album")
+    # A still-building or failed album has no spreads to render yet — show its
+    # status page (which auto-refreshes while processing) instead of the layout.
+    if album["status"] != "ready":
+        return TEMPLATES.TemplateResponse(
+            request, "album_status.html", {"album": album, "user": user}
+        )
+    data = albums.album_for_render(conn, album_id, user["id"])
     return TEMPLATES.TemplateResponse(
         request,
         "album.html",
         {"album": data["album"], "spreads": data["spreads"], "user": user},
     )
+
+
+@app.post("/albums/{album_id}/retry")
+def retry_album(
+    album_id: int,
+    request: Request,
+    user: dict = Depends(require_user),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    """Re-queue a failed album (owner only). requeue_album no-ops unless it's
+    actually 'failed', so this can't disturb a ready or in-flight one."""
+    _require_owned_album(conn, album_id, user)
+    if pipeline.requeue_album(conn, album_id):
+        _wake_worker(request)
+    return RedirectResponse(f"/albums/{album_id}", status_code=303)
 
 
 def _require_owned_album(conn, album_id: int, user: dict) -> None:
