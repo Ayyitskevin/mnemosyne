@@ -26,6 +26,10 @@
     .topbar button { background: none; border: 0; color: #c9a86a; cursor: pointer;
                      font-size: .85rem; padding: 0; margin-left: .8rem; }
     .topbar button:hover { text-decoration: underline; }
+    a.newbtn { display: inline-block; text-decoration: none; background: #c9a86a;
+               color: #1a160f; border-radius: 8px; padding: .6rem 1.2rem;
+               font-size: .95rem; font-weight: 600; margin-bottom: 1.8rem; }
+    a.newbtn:hover { background: #d8ba7e; }
   </style>
 </head>
 <body>
@@ -44,6 +48,7 @@
         </div>
       {% endif %}
     </div>
+    <a class="newbtn" href="/albums/new">+ New album</a>
     {% if albums %}
       {% for a in albums %}
         <a class="album" href="/albums/{{ a.id }}">
@@ -52,7 +57,7 @@
         </a>
       {% endfor %}
     {% else %}
-      <div class="empty">No albums yet. Run <code>python -m mnemosyne build &lt;folder&gt;</code>.</div>
+      <div class="empty">No albums yet. Upload a gallery to design your first one.</div>
     {% endif %}
   </div>
 </body>

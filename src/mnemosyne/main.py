@@ -15,9 +15,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import os
+import secrets
 import tempfile
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import (
     FileResponse,
     HTMLResponse,
@@ -29,7 +30,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
-from mnemosyne import albums, auth, config, db, edits, export, waitlist
+from mnemosyne import albums, auth, config, db, edits, export, ingest, pipeline, waitlist
 
 TEMPLATES = Jinja2Templates(
     directory=str(Path(__file__).resolve().parents[2] / "templates")
@@ -199,6 +200,85 @@ def index(
         "albums.html",
         {"albums": albums.list_albums(conn, user["id"]), "user": user},
     )
+
+
+def _save_uploads(files: list[UploadFile], owner_id: int) -> tuple[Path, int]:
+    """Write the uploaded images into a fresh per-album folder and return it plus
+    the count saved. Only known image suffixes are kept; every name is reduced to
+    its basename so a crafted "../../etc/passwd" can't escape the upload root
+    (path-traversal guard). Colliding names get a numeric suffix so no file is
+    silently dropped. Files are taken in submit order, but ingest re-sorts by
+    filename, so original camera names still drive the sequence."""
+    dest_dir = config.UPLOAD_DIR / f"u{owner_id}_{secrets.token_hex(6)}"
+    saved = 0
+    for f in files:
+        if not f.filename:
+            continue
+        name = Path(f.filename).name  # strip any directory components
+        if Path(name).suffix.lower() not in ingest.IMAGE_SUFFIXES:
+            continue
+        dest_dir.mkdir(parents=True, exist_ok=True)  # only once we have a keeper
+        target = dest_dir / name
+        n = 1
+        while target.exists():
+            target = dest_dir / f"{target.stem}_{n}{target.suffix}"
+            n += 1
+        target.write_bytes(f.file.read())
+        saved += 1
+    return dest_dir, saved
+
+
+@app.get("/albums/new", response_class=HTMLResponse)
+def new_album_form(request: Request, user: dict = Depends(require_user)):
+    return TEMPLATES.TemplateResponse(
+        request, "new_album.html", {"user": user, "max_photos": config.MAX_ALBUM_UPLOAD}
+    )
+
+
+@app.post("/albums/new", response_class=HTMLResponse)
+def create_album(
+    request: Request,
+    name: str = Form(""),
+    photos: list[UploadFile] = File(default=[]),
+    user: dict = Depends(require_user),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    """Create an album from a browser upload: save the photos, run the whole
+    vision pipeline inline, then show the draft. Small-and-sync by design — the
+    photo cap (config.MAX_ALBUM_UPLOAD) keeps one request bounded until there's a
+    background job runner. Validation lives here, at the boundary; any rejection
+    re-renders the form with a message rather than 500-ing."""
+    real = [f for f in photos if f.filename]
+    if len(real) > config.MAX_ALBUM_UPLOAD:
+        return TEMPLATES.TemplateResponse(
+            request,
+            "new_album.html",
+            {
+                "user": user,
+                "max_photos": config.MAX_ALBUM_UPLOAD,
+                "name": name,
+                "error": f"Too many photos — upload at most {config.MAX_ALBUM_UPLOAD} at once.",
+            },
+        )
+
+    dest_dir, saved = _save_uploads(real, user["id"])
+    if saved == 0:
+        return TEMPLATES.TemplateResponse(
+            request,
+            "new_album.html",
+            {
+                "user": user,
+                "max_photos": config.MAX_ALBUM_UPLOAD,
+                "name": name,
+                "error": "No usable images found — add some JPG or PNG photos.",
+            },
+        )
+
+    album_name = name.strip() or "Untitled album"
+    result = pipeline.build_album(
+        conn, name=album_name, source_dir=dest_dir, owner_id=user["id"]
+    )
+    return RedirectResponse(f"/albums/{result['album_id']}", status_code=303)
 
 
 @app.get("/albums/{album_id}", response_class=HTMLResponse)

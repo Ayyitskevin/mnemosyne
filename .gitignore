@@ -21,6 +21,9 @@ venv/
 # Scratch / generated test images
 /scratch/
 
+# Web-uploaded photos (one subfolder per album; served off disk, not in git)
+/uploads/
+
 # Local logs (per-photo vision cost metering, etc.)
 *.log
 

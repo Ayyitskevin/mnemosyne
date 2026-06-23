@@ -21,6 +21,17 @@ DB_PATH = Path(os.environ.get("MNEMOSYNE_DB", "mnemosyne.db"))
 # so restarts don't drop sessions — the dev fallback is a fresh key per boot.
 SECRET_KEY = os.environ.get("MNEMOSYNE_SECRET_KEY") or os.urandom(32).hex()
 
+# Where web-uploaded photos are written, one subfolder per created album. Ingest
+# records absolute paths into these files, and /photo/<id> later serves them off
+# disk, so this is permanent storage, not scratch — gitignored, per-machine.
+UPLOAD_DIR = Path(os.environ.get("MNEMOSYNE_UPLOAD_DIR", "uploads"))
+
+# Cap on photos per web upload. The create-album route runs the whole vision
+# pipeline inline (small-and-sync), so a giant gallery would hang the request —
+# this keeps a browser submit bounded until an async job runner exists. The CLI
+# `build` path has no such cap (it's a local operator, not a web stranger).
+MAX_ALBUM_UPLOAD = int(os.environ.get("MNEMOSYNE_MAX_ALBUM_UPLOAD", "25"))
+
 # The local Ollama fleet on mickey. Phase 0 runs ENTIRELY on-box — images are
 # analyzed here and never leave the machine, so "we don't train on your images"
 # is true by construction. (When mnemosyne becomes a hosted SaaS, these point at

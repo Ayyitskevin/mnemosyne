@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>mnemosyne — new album</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; background: #0e0d0c; color: #e8e2d8;
+           font: 16px/1.6 -apple-system, Segoe UI, Roboto, sans-serif; }
+    .wrap { max-width: 560px; margin: 0 auto; padding: 4rem 1.5rem; }
+    h1 { font-weight: 300; letter-spacing: .04em; font-size: 2rem; margin: 0 0 .4rem; }
+    .sub { color: #9b9183; margin: 0 0 2rem; }
+    label { display: block; color: #9b9183; font-size: .85rem; margin: 0 0 .35rem; }
+    input[type=text], input[type=file] { width: 100%; box-sizing: border-box;
+        background: #0e0d0c; border: 1px solid #3a352e; border-radius: 8px;
+        color: #e8e2d8; padding: .75rem .9rem; font-size: 1rem; margin-bottom: 1.3rem; }
+    input[type=text]:focus { outline: none; border-color: #6b5d49; }
+    input[type=file] { padding: .6rem .9rem; }
+    button { background: #c9a86a; color: #1a160f; border: 0; border-radius: 8px;
+             padding: .8rem 1.6rem; font-size: 1rem; font-weight: 600; cursor: pointer; }
+    button:hover { background: #d8ba7e; }
+    .error { color: #d99; margin: 0 0 1.1rem; font-size: .95rem; }
+    .fine { color: #6f675b; font-size: .82rem; margin-top: 1.1rem; }
+    .back { color: #9b9183; font-size: .9rem; margin-bottom: 1.8rem; display: inline-block; }
+    .back a { color: #c9a86a; text-decoration: none; }
+    .back a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <span class="back"><a href="/albums">&larr; albums</a></span>
+    <h1>New album</h1>
+    <p class="sub">Upload a culled gallery — mnemosyne drafts the spreads.</p>
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    <form method="post" action="/albums/new" enctype="multipart/form-data">
+      <label for="name">Album name</label>
+      <input type="text" id="name" name="name" value="{{ name or '' }}"
+             placeholder="Untitled album">
+      <label for="photos">Photos</label>
+      <input type="file" id="photos" name="photos" accept="image/*" multiple required>
+      <button type="submit">Design album</button>
+      <p class="fine">JPG, PNG, WebP or TIFF · up to {{ max_photos }} photos ·
+        designing runs the vision pass, so this can take a moment.</p>
+    </form>
+  </div>
+</body>
+</html>
