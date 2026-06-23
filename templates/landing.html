@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>mnemosyne — your gallery, drafted into an album</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; background: #0e0d0c; color: #e8e2d8;
+           font: 16px/1.6 -apple-system, Segoe UI, Roboto, sans-serif; }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 4rem 1.5rem; }
+    h1 { font-weight: 300; letter-spacing: .04em; font-size: 2.4rem; margin: 0 0 .4rem; }
+    .lede { color: #cfc6b8; font-size: 1.2rem; margin: 0 0 2.5rem; }
+    .sub { color: #9b9183; }
+    .ba { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 2.5rem 0; }
+    .ba .col { border: 1px solid #2a2622; border-radius: 10px; padding: 1.2rem 1.3rem; }
+    .ba .tag { color: #9b9183; font-size: .8rem; letter-spacing: .08em;
+               text-transform: uppercase; margin: 0 0 .5rem; }
+    .ba .before { color: #b8a98f; }
+    .ba .after { color: #e8e2d8; }
+    .ba ul { margin: 0; padding-left: 1.1rem; }
+    .ba li { margin: .25rem 0; }
+    .signup { border: 1px solid #2a2622; border-radius: 12px;
+              padding: 1.6rem 1.5rem; margin-top: 2.5rem; background: #15130f; }
+    .signup h2 { font-weight: 400; font-size: 1.25rem; margin: 0 0 .3rem; }
+    .signup p { margin: 0 0 1.1rem; }
+    form { display: flex; gap: .6rem; flex-wrap: wrap; }
+    input[type=email] { flex: 1; min-width: 220px; background: #0e0d0c;
+        border: 1px solid #3a352e; border-radius: 8px; color: #e8e2d8;
+        padding: .75rem .9rem; font-size: 1rem; }
+    input[type=email]:focus { outline: none; border-color: #6b5d49; }
+    button { background: #c9a86a; color: #1a160f; border: 0; border-radius: 8px;
+             padding: .75rem 1.4rem; font-size: 1rem; font-weight: 600; cursor: pointer; }
+    button:hover { background: #d8ba7e; }
+    .joined { color: #9bbf8a; margin: 0; font-size: 1.05rem; }
+    .error { color: #d99; margin: 0 0 .8rem; font-size: .95rem; }
+    .fine { color: #6f675b; font-size: .8rem; margin-top: 1rem; }
+    footer { color: #6f675b; font-size: .85rem; margin-top: 3rem; }
+    @media (max-width: 560px) { .ba { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>mnemosyne</h1>
+    <p class="lede">Hand it a finished gallery. Get back a designed album draft —
+      sequenced, hero shots chosen, ready to refine.</p>
+    <p class="sub">The slow part of album design isn't the taste, it's the
+      first pass: ordering hundreds of frames into a story and roughing out every
+      spread. mnemosyne does that pass so you start from a draft, not a blank book.</p>
+
+    <div class="ba">
+      <div class="col before">
+        <p class="tag">Before</p>
+        <ul>
+          <li>800 culled frames in a folder</li>
+          <li>A blank album, page one</li>
+          <li>Hours dragging photos into order</li>
+        </ul>
+      </div>
+      <div class="col after">
+        <p class="tag">After</p>
+        <ul>
+          <li>Spreads laid out in story order</li>
+          <li>A hero shot picked for each</li>
+          <li>You nudge and export — print-ready</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="signup">
+      {% if joined %}
+        <h2>You're on the list.</h2>
+        <p class="joined">Thanks — we'll email you when mnemosyne opens up.</p>
+      {% else %}
+        <h2>Want early access?</h2>
+        <p>Leave your email and we'll reach out when it's ready for real galleries.</p>
+        {% if error %}<p class="error">{{ error }}</p>{% endif %}
+        <form method="post" action="/waitlist">
+          <input type="email" name="email" placeholder="you@studio.com"
+                 value="{{ email or '' }}" required autofocus>
+          <button type="submit">Join the waitlist</button>
+        </form>
+        <p class="fine">No spam. One email when it launches, nothing else.</p>
+      {% endif %}
+    </div>
+
+    <footer>mnemosyne · an AI album designer for photographers</footer>
+  </div>
+</body>
+</html>

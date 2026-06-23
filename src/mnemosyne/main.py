@@ -1,9 +1,11 @@
 """Show — the web station. A thin reader over the album data.
 
-Boots, applies migrations, and serves two pages: an index of albums and a spread-
-by-spread preview of one album. Photos are served straight off disk from the path
-recorded at ingest (Phase 0 is single-user and local, so reading our own DB-stored
-paths is fine).
+Boots, applies migrations, and serves a public landing page (`/`, the demand-
+validation pitch + waitlist signup) plus the local album tool: an index of albums
+(`/albums`) and a spread-by-spread preview of one album. Photos are served
+straight off disk from the path recorded at ingest (the album tool is still
+single-user and local, so reading our own DB-stored paths is fine — auth and
+multi-tenancy arrive with the Phase 2 SaaS turn).
 """
 from __future__ import annotations
 
@@ -14,7 +16,7 @@ from pathlib import Path
 import os
 import tempfile
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import (
     FileResponse,
     HTMLResponse,
@@ -23,7 +25,7 @@ from fastapi.responses import (
 )
 from fastapi.templating import Jinja2Templates
 
-from mnemosyne import albums, config, db, edits, export
+from mnemosyne import albums, config, db, edits, export, waitlist
 
 TEMPLATES = Jinja2Templates(
     directory=str(Path(__file__).resolve().parents[2] / "templates")
@@ -55,6 +57,36 @@ def healthz() -> dict:
 
 
 @app.get("/", response_class=HTMLResponse)
+def landing(request: Request):
+    """The public pitch. No data of its own — its only job is to make the promise
+    and capture an email, so it needs no DB read."""
+    return TEMPLATES.TemplateResponse(request, "landing.html", {})
+
+
+@app.post("/waitlist", response_class=HTMLResponse)
+def join_waitlist(
+    request: Request,
+    email: str = Form(...),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    """Capture a signup, then re-render the landing page with the outcome.
+
+    Validation happens here, at the boundary, before we trust the input. A bad
+    address re-renders with an error and the typed value preserved; a good one is
+    added idempotently and we show the on-the-list confirmation. Plain form POST
+    with a full re-render — no JS, matching the rest of the app.
+    """
+    if not waitlist.is_valid_email(email):
+        return TEMPLATES.TemplateResponse(
+            request,
+            "landing.html",
+            {"error": "That doesn't look like an email address.", "email": email},
+        )
+    waitlist.add(conn, email, source="landing")
+    return TEMPLATES.TemplateResponse(request, "landing.html", {"joined": True})
+
+
+@app.get("/albums", response_class=HTMLResponse)
 def index(request: Request, conn: sqlite3.Connection = Depends(get_conn)):
     return TEMPLATES.TemplateResponse(
         request, "albums.html", {"albums": albums.list_albums(conn)}
