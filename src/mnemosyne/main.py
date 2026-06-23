@@ -15,10 +15,15 @@ import os
 import tempfile
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    RedirectResponse,
+    Response,
+)
 from fastapi.templating import Jinja2Templates
 
-from mnemosyne import albums, config, db, export
+from mnemosyne import albums, config, db, edits, export
 
 TEMPLATES = Jinja2Templates(
     directory=str(Path(__file__).resolve().parents[2] / "templates")
@@ -68,6 +73,19 @@ def show_album(
         "album.html",
         {"album": data["album"], "spreads": data["spreads"]},
     )
+
+
+@app.post("/albums/{album_id}/spreads/{spread_id}/move/{direction}")
+def move_spread(
+    album_id: int,
+    spread_id: int,
+    direction: str,
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    if direction not in ("up", "down"):
+        raise HTTPException(status_code=400, detail="direction must be up or down")
+    edits.move_spread(conn, album_id, spread_id, direction)
+    return RedirectResponse(f"/albums/{album_id}", status_code=303)
 
 
 @app.get("/albums/{album_id}/pdf")

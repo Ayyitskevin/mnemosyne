@@ -14,7 +14,14 @@
     h1 { font-weight: 300; letter-spacing: .04em; margin: .4rem 0 2rem; }
     .spread { margin-bottom: 1.8rem; }
     .label { color: #9b9183; font-size: .8rem; letter-spacing: .08em;
-             text-transform: uppercase; margin-bottom: .5rem; }
+             text-transform: uppercase; margin-bottom: .5rem;
+             display: flex; align-items: center; gap: .6rem; }
+    .nudge { display: inline-flex; gap: .25rem; }
+    .nudge form { margin: 0; }
+    .nudge button { background: #1b1814; color: #9b9183; border: 1px solid #2a2620;
+                    border-radius: 4px; width: 1.6rem; height: 1.4rem; cursor: pointer;
+                    font-size: .8rem; line-height: 1; padding: 0; }
+    .nudge button:hover { color: #e8e2d8; border-color: #4a443a; }
     /* A spread is two facing pages drawn as one CSS grid; the per-spread track
        sizing + grid-areas come from the layout engine, with a faint centre line
        standing in for the book's spine. */
@@ -37,7 +44,21 @@
 
     {% for spread in spreads %}
       <div class="spread">
-        <div class="label">Spread {{ spread.position }}</div>
+        <div class="label">
+          Spread {{ spread.position }}
+          <span class="nudge">
+            {% if not loop.first %}
+            <form method="post" action="/albums/{{ album.id }}/spreads/{{ spread.id }}/move/up">
+              <button type="submit" title="move earlier">&uarr;</button>
+            </form>
+            {% endif %}
+            {% if not loop.last %}
+            <form method="post" action="/albums/{{ album.id }}/spreads/{{ spread.id }}/move/down">
+              <button type="submit" title="move later">&darr;</button>
+            </form>
+            {% endif %}
+          </span>
+        </div>
         <div class="pages" style="grid-template-columns: {{ spread.layout.cols }};
              grid-template-rows: {{ spread.layout.rows }};
              grid-template-areas: {{ spread.layout.areas | safe }};">
