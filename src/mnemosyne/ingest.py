@@ -18,21 +18,22 @@ IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"}
 
 
 def ingest_folder(
-    conn: sqlite3.Connection, *, name: str, source_dir: str | Path
+    conn: sqlite3.Connection, *, name: str, source_dir: str | Path, owner_id: int
 ) -> int:
-    """Create an album for source_dir and record every image in it.
+    """Create an album for source_dir, owned by owner_id, and record every image.
 
-    Returns the new album's id. Files are taken in sorted filename order — for
-    camera/Lightroom exports that's usually chronological, which gives the
-    arrange step a sane starting sequence to refine.
+    Returns the new album's id. owner_id is required so no album is ever created
+    ownerless from here on (orphans only exist for pre-accounts dogfood data).
+    Files are taken in sorted filename order — for camera/Lightroom exports that's
+    usually chronological, giving the arrange step a sane starting sequence.
     """
     src = Path(source_dir).expanduser()
     if not src.is_dir():
         raise NotADirectoryError(f"not a folder: {src}")
 
     cur = conn.execute(
-        "INSERT INTO albums (name, source_dir) VALUES (?, ?)",
-        (name, str(src)),
+        "INSERT INTO albums (name, source_dir, owner_id) VALUES (?, ?, ?)",
+        (name, str(src), owner_id),
     )
     album_id = cur.lastrowid
 

@@ -15,6 +15,12 @@ load_dotenv()
 # The SQLite file mnemosyne stores everything in. Override with MNEMOSYNE_DB.
 DB_PATH = Path(os.environ.get("MNEMOSYNE_DB", "mnemosyne.db"))
 
+# Signing key for the session cookie (Starlette SessionMiddleware). A logged-in
+# user's id rides in a cookie signed with this; rotating it logs everyone out.
+# In prod set MNEMOSYNE_SECRET_KEY to a fixed random value (in .env, off the repo)
+# so restarts don't drop sessions — the dev fallback is a fresh key per boot.
+SECRET_KEY = os.environ.get("MNEMOSYNE_SECRET_KEY") or os.urandom(32).hex()
+
 # The local Ollama fleet on mickey. Phase 0 runs ENTIRELY on-box — images are
 # analyzed here and never leave the machine, so "we don't train on your images"
 # is true by construction. (When mnemosyne becomes a hosted SaaS, these point at
