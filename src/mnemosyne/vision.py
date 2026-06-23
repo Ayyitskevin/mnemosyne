@@ -23,7 +23,7 @@ import time
 import urllib.error
 import urllib.request
 
-import httpx
+import httpx2 as httpx
 from PIL import Image
 
 from mnemosyne import config
