@@ -10,6 +10,7 @@ dependencies = [
     "pillow",
     "httpx",
     "reportlab",
+    "python-multipart",   # parse HTML form POSTs (the waitlist signup form)
 ]
 
 [project.optional-dependencies]
