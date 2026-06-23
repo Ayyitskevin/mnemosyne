@@ -111,6 +111,24 @@ GROK_VISION_MODEL = os.environ.get("MNEMOSYNE_GROK_VISION_MODEL", "grok-4.20-non
 # existing dogfood path unsurprised. Flipping this one var is the whole A/B.
 VISION_BACKEND = os.environ.get("MNEMOSYNE_VISION_BACKEND")
 
+# The arrange (reasoning) step's backend, mirroring the vision selector: "grok"
+# routes the layout call to xAI's cloud API; unset/anything else stays on local
+# Ollama (config.ARRANGE_MODEL). A real cloud host has no Ollama, so this is how
+# arrange runs there — and like vision it is OPT-IN so the local dogfood path is
+# never silently swapped for a billed call.
+ARRANGE_BACKEND = os.environ.get("MNEMOSYNE_ARRANGE_BACKEND")
+# The grok model for the arrange call. Layout is a judgment task (Rule 5), so the
+# cheaper non-reasoning variant fits — no reasoning-token bill for a JSON layout.
+GROK_ARRANGE_MODEL = os.environ.get("MNEMOSYNE_GROK_ARRANGE_MODEL", "grok-4.20-non-reasoning")
+
+# Price per 1M tokens on the grok cloud lane, used to turn the recorded token
+# counts into a $/album COGS figure (see usage.py + the inference_usage table).
+# Default 0 = UNPRICED: cost is stored as NULL (honestly "unknown", not "free") and
+# the token counts remain the ground truth. Set these from xAI's price sheet in
+# .env (off the repo) to make dollars appear; prompt and completion bill separately.
+GROK_PRICE_PROMPT_PER_M = float(os.environ.get("MNEMOSYNE_GROK_PRICE_PROMPT_PER_M") or 0)
+GROK_PRICE_COMPLETION_PER_M = float(os.environ.get("MNEMOSYNE_GROK_PRICE_COMPLETION_PER_M") or 0)
+
 # Where per-photo cloud-vision cost lines (tokens + latency) are appended, so
 # $/album is reconstructable from call one. Local + gitignored by default; high
 # volume, so deliberately NOT the shared fleet routing log.

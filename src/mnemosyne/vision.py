@@ -30,7 +30,7 @@ from pathlib import Path
 import httpx2 as httpx
 from PIL import Image
 
-from mnemosyne import config, storage
+from mnemosyne import config, storage, usage
 
 PROMPT = (
     "You are a photo editor culling a restaurant/food photo shoot to design an "
@@ -236,11 +236,21 @@ def _analyze_one_via_grok(image_path: str) -> dict:
         raise RuntimeError(f"xAI vision call failed for {image_path}: {e}") from e
     latency = time.monotonic() - started
 
-    usage = body.get("usage", {}) or {}
-    _log_grok_usage(image_path, usage, latency)
+    tokens = body.get("usage", {}) or {}
+    _log_grok_usage(image_path, tokens, latency)
 
     content = body["choices"][0]["message"]["content"]
-    return _parse_scene_hero(content)
+    out = _parse_scene_hero(content)
+    # Carry the billed-call metering up to look_at_album, which has the conn +
+    # album/photo ids to write the inference_usage row. The model function itself
+    # stays DB-free — only the local + argus paths omit this key (they're unmetered).
+    out["usage_meta"] = {
+        "backend": "grok",
+        "model": config.GROK_VISION_MODEL,
+        "tokens": tokens,
+        "latency": latency,
+    }
+    return out
 
 
 def _log_grok_usage(image_path: str, usage: dict, latency: float) -> None:
@@ -299,5 +309,12 @@ def look_at_album(conn: sqlite3.Connection, album_id: int) -> int:
             (result["scene"], result["hero_score"], row["id"]),
         )
         conn.commit()
+        # Meter the call if it was a billed cloud one (the cloud backend attached a
+        # usage_meta; local/argus don't), so per-album COGS is queryable.
+        meta = result.get("usage_meta")
+        if meta:
+            usage.record(
+                conn, album_id=album_id, photo_id=row["id"], stage="vision", **meta
+            )
         n += 1
     return n

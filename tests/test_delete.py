@@ -31,7 +31,7 @@ def no_models(monkeypatch):
     monkeypatch.setattr(
         vision, "analyze_one", lambda path: {"scene": "food", "hero_score": 0.5}
     )
-    monkeypatch.setattr(arrange, "_ask_model", lambda photos: None)
+    monkeypatch.setattr(arrange, "_ask_model", lambda photos: (None, None))
 
 
 def _user(conn, email="a@example.com") -> int:

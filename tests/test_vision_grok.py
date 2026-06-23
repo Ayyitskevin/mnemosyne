@@ -92,7 +92,12 @@ def test_grok_backend_posts_to_xai_and_parses(jpeg, monkeypatch, tmp_path):
     monkeypatch.setattr(vision.httpx, "Client", _FakeClient)
 
     out = vision._analyze_one_via_grok(jpeg)
-    assert out == {"scene": "hero plated dish", "hero_score": 0.9}
+    assert out["scene"] == "hero plated dish"
+    assert out["hero_score"] == 0.9
+    # The billed call carries its usage up for metering (look_at_album writes the
+    # inference_usage row); local/argus backends omit this key.
+    assert out["usage_meta"]["backend"] == "grok"
+    assert out["usage_meta"]["tokens"]["total_tokens"] == 220
 
     cap = _FakeClient.captured
     assert cap["url"] == "https://api.x.ai/v1/chat/completions"
