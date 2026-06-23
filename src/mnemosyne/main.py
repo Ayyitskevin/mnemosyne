@@ -42,6 +42,7 @@ from mnemosyne import (
     export,
     ingest,
     pipeline,
+    storage,
     waitlist,
 )
 from mnemosyne.worker import AlbumWorker
@@ -490,6 +491,13 @@ def photo_file(
     conn: sqlite3.Connection = Depends(get_conn),
 ):
     photo = albums.get_photo(conn, photo_id, user["id"])
-    if photo is None or not Path(photo["path"]).is_file():
+    store = storage.get_storage()
+    if photo is None or not store.exists(photo["path"]):
         raise HTTPException(status_code=404, detail="no such photo")
-    return FileResponse(photo["path"])
+    # If the backend can hand the browser a direct URL (object store), redirect to
+    # it so the bytes never proxy through this process; otherwise (local disk)
+    # stream the file ourselves.
+    url = store.signed_url(photo["path"])
+    if url is not None:
+        return RedirectResponse(url)
+    return FileResponse(store.local_path(photo["path"]))

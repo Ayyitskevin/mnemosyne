@@ -26,6 +26,12 @@ SECRET_KEY = os.environ.get("MNEMOSYNE_SECRET_KEY") or os.urandom(32).hex()
 # disk, so this is permanent storage, not scratch — gitignored, per-machine.
 UPLOAD_DIR = Path(os.environ.get("MNEMOSYNE_UPLOAD_DIR", "uploads"))
 
+# Which storage driver backs photo bytes (see storage.py). "local" = this box's
+# filesystem (the only driver today). An object-store driver ("r2"/"s3") drops in
+# here later without touching ingest/vision/export/web — that swappability is the
+# whole point of the storage seam.
+STORAGE_BACKEND = os.environ.get("MNEMOSYNE_STORAGE_BACKEND", "local")
+
 # Cap on photos per web upload. The vision pipeline now runs in the background
 # worker, not in the request, so this is no longer about request timeouts — it's
 # a sanity bound on one submit (disk + a single album's queue time), sized for a

@@ -30,7 +30,7 @@ from pathlib import Path
 import httpx2 as httpx
 from PIL import Image
 
-from mnemosyne import config
+from mnemosyne import config, storage
 
 PROMPT = (
     "You are a photo editor culling a restaurant/food photo shoot to design an "
@@ -285,9 +285,14 @@ def look_at_album(conn: sqlite3.Connection, album_id: int) -> int:
         "SELECT id, path FROM photos WHERE album_id = ? AND scene IS NULL ORDER BY id",
         (album_id,),
     ).fetchall()
+    store = storage.get_storage()
     n = 0
     for row in rows:
-        result = analyze_one(row["path"])
+        # Resolve the storage key to a real path for the life of the analyze call;
+        # a remote driver downloads + cleans up around this block, the local one
+        # just hands back the file.
+        with store.open_path(row["path"]) as image_path:
+            result = analyze_one(str(image_path))
         conn.execute(
             "UPDATE photos SET scene = ?, hero_score = ? WHERE id = ?",
             (result["scene"], result["hero_score"], row["id"]),

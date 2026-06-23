@@ -19,7 +19,7 @@ from PIL import Image
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
-from mnemosyne import albums
+from mnemosyne import albums, storage
 
 # A page is one spread at the preview's 16:10 aspect; points (1/72").
 PAGE_W, PAGE_H = 864.0, 540.0
@@ -92,9 +92,13 @@ def _cover(img: Image.Image, w: float, h: float) -> Image.Image:
     return img.crop((round(left), round(top), round(left + cw), round(top + ch)))
 
 
-def _draw_photo(c: canvas.Canvas, path: str, rect: tuple) -> None:
+def _draw_photo(c: canvas.Canvas, key: str, rect: tuple) -> None:
     x, y, w, h = rect
-    with Image.open(path) as img:
+    # Pull the bytes via the storage seam, not the filesystem, so export keeps
+    # working when photos live in an object store. The image is fully read inside
+    # this block, so a remote driver's temp file is safe to clean up on exit.
+    store = storage.get_storage()
+    with store.open_path(key) as path, Image.open(path) as img:
         cropped = _cover(img.convert("RGB"), w, h)
         c.drawImage(ImageReader(cropped), x, y, w, h)
 
