@@ -83,6 +83,51 @@ def test_empty_album_summary_is_zeroed(conn):
     assert usage.album_summary(conn, aid) == {"calls": 0, "total_tokens": 0, "cost_usd": None}
 
 
+def test_cost_report_breaks_down_by_stage(conn, monkeypatch):
+    # The Gate 3 number: vision is one billed call per photo, arrange is a single
+    # call. The report must split tokens/dollars per stage AND match the roll-up.
+    monkeypatch.setattr(config, "GROK_PRICE_PROMPT_PER_M", 2.0)
+    monkeypatch.setattr(config, "GROK_PRICE_COMPLETION_PER_M", 10.0)
+    aid = _album(conn)
+    for pid in (1, 2):  # two billed vision photos
+        usage.record(conn, album_id=aid, photo_id=pid, stage="vision", backend="grok",
+                     model="m", tokens=_TOKENS, latency=0.3)
+    usage.record(conn, album_id=aid, photo_id=None, stage="arrange", backend="grok",
+                 model="m", tokens=_TOKENS, latency=1.1)
+
+    rep = usage.album_cost_report(conn, aid)
+    assert rep["album_id"] == aid
+    assert rep["calls"] == 3 and rep["total_tokens"] == 3600
+    assert rep["cost_usd"] == pytest.approx(0.012)  # three priced calls at 0.004
+    by_stage = {s["stage"]: s for s in rep["stages"]}
+    assert by_stage["vision"]["calls"] == 2
+    assert by_stage["vision"]["total_tokens"] == 2400
+    assert by_stage["vision"]["cost_usd"] == pytest.approx(0.008)
+    assert by_stage["arrange"]["calls"] == 1
+    assert by_stage["arrange"]["cost_usd"] == pytest.approx(0.004)
+    # Per-stage totals reconcile to the headline — the report can't silently drop a call.
+    assert sum(s["calls"] for s in rep["stages"]) == rep["calls"]
+
+
+def test_cost_report_dollars_unknown_when_unpriced(conn):
+    # No rates configured: tokens are still ground truth, but every dollar reads
+    # None (honest "unknown"), headline and per-stage alike.
+    aid = _album(conn)
+    usage.record(conn, album_id=aid, photo_id=1, stage="vision", backend="grok",
+                 model="m", tokens=_TOKENS, latency=0.3)
+    rep = usage.album_cost_report(conn, aid)
+    assert rep["total_tokens"] == 1200
+    assert rep["cost_usd"] is None
+    assert rep["stages"][0]["stage"] == "vision"
+    assert rep["stages"][0]["cost_usd"] is None
+
+
+def test_cost_report_empty_album_has_no_stages(conn):
+    aid = _album(conn)
+    rep = usage.album_cost_report(conn, aid)
+    assert rep["calls"] == 0 and rep["stages"] == []
+
+
 def test_look_at_album_records_a_vision_row_per_billed_photo(conn, monkeypatch):
     # A grok vision call attaches usage_meta; look_at_album must turn that into one
     # inference_usage row per photo. Stub analyze_one so no network is touched.

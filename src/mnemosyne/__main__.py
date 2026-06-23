@@ -4,6 +4,7 @@ adduser — create an account (and adopt any pre-accounts dogfood albums).
 build   — run a folder through the whole pipeline (ingest -> look -> arrange).
 serve   — start the web preview at http://localhost:8000.
 export  — render a laid-out album to a print-ready PDF.
+cost    — show the cloud-inference COGS ($/album) for one album.
 """
 from __future__ import annotations
 
@@ -12,7 +13,27 @@ import getpass
 import sys
 from pathlib import Path
 
-from mnemosyne import albums, auth, config, db, pipeline
+from mnemosyne import albums, auth, config, db, pipeline, usage
+
+
+def _fmt_cost(cost: float | None) -> str:
+    """A dollar figure, or an honest 'unknown' when no price is set — never a fake
+    $0.00 (CLAUDE.md R12). Points at the knob that turns pricing on."""
+    if cost is None:
+        return "unknown (set MNEMOSYNE_GROK_PRICE_PROMPT/COMPLETION_PER_M in .env)"
+    return f"${cost:.4f}"
+
+
+def _print_cost_report(report: dict) -> None:
+    if report["calls"] == 0:
+        print("no billed cloud calls recorded (local backends are free, "
+              "so this album cost nothing to compute)")
+        return
+    print(f"album #{report['album_id']} COGS: {report['calls']} billed call(s), "
+          f"{report['total_tokens']} tokens, {_fmt_cost(report['cost_usd'])}")
+    for st in report["stages"]:
+        print(f"  {st['stage']:<8} {st['calls']:>4} call(s)  "
+              f"{st['total_tokens']:>8} tok  {_fmt_cost(st['cost_usd'])}")
 
 
 def _resolve_owner(conn, email: str | None) -> int:
@@ -52,6 +73,9 @@ def main() -> None:
     e.add_argument("album_id", type=int, help="album id to export")
     e.add_argument("--out", default=None, help="output path (defaults to album-<id>.pdf)")
 
+    co = sub.add_parser("cost", help="show cloud-inference COGS for an album")
+    co.add_argument("album_id", type=int, help="album id to price")
+
     args = parser.parse_args()
 
     if args.cmd == "adduser":
@@ -80,6 +104,10 @@ def main() -> None:
             f"album #{result['album_id']}: looked at {result['looked']} photos, "
             f"laid out {result['spreads']} spreads"
         )
+        # If this run used a billed cloud backend, surface what it cost right here —
+        # that's the Gate 3 number (a real gallery's $/album). A free local run
+        # records nothing and prints the "cost nothing" line.
+        _print_cost_report(usage.album_cost_report(conn, result["album_id"]))
         print("now run:  python -m mnemosyne serve   ->   http://localhost:8000")
     elif args.cmd == "serve":
         import uvicorn
@@ -93,6 +121,10 @@ def main() -> None:
         out = args.out or f"album-{args.album_id}.pdf"
         path = export.export_album(conn, args.album_id, out)
         print(f"wrote {path}")
+    elif args.cmd == "cost":
+        conn = db.connect(config.DB_PATH)
+        db.migrate(conn)
+        _print_cost_report(usage.album_cost_report(conn, args.album_id))
 
 
 if __name__ == "__main__":

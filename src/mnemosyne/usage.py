@@ -61,24 +61,46 @@ def record(
         pass
 
 
-def album_summary(conn: sqlite3.Connection, album_id: int) -> dict:
-    """COGS roll-up for one album: how many billed calls, total tokens, and total
-    dollars (None if any call was unpriced — so a partial price never reads as the
-    whole truth). This is what a 'what did this album cost me' view reads."""
-    row = conn.execute(
+def _rollup(conn: sqlite3.Connection, album_id: int, stage: str | None = None) -> dict:
+    """Sum the billed-call rows for one album (optionally one stage) into
+    {calls, total_tokens, cost_usd}. The dollar total stays None unless EVERY call
+    in the set was priced, so a partial price never reads as the whole truth."""
+    sql = (
         "SELECT COUNT(*) AS calls, "
         "COALESCE(SUM(total_tokens), 0) AS total_tokens, "
         "SUM(cost_usd) AS cost_usd, "
         "COUNT(cost_usd) AS priced_calls "
-        "FROM inference_usage WHERE album_id = ?",
-        (album_id,),
-    ).fetchone()
+        "FROM inference_usage WHERE album_id = ?"
+    )
+    params: tuple = (album_id,)
+    if stage is not None:
+        sql += " AND stage = ?"
+        params += (stage,)
+    row = conn.execute(sql, params).fetchone()
     calls = row["calls"]
-    # A dollar total is only honest if EVERY call was priced; otherwise report it as
-    # unknown rather than summing a subset.
     cost = row["cost_usd"] if calls and row["priced_calls"] == calls else None
-    return {
-        "calls": calls,
-        "total_tokens": row["total_tokens"],
-        "cost_usd": cost,
-    }
+    return {"calls": calls, "total_tokens": row["total_tokens"], "cost_usd": cost}
+
+
+def album_summary(conn: sqlite3.Connection, album_id: int) -> dict:
+    """COGS roll-up for one album: how many billed calls, total tokens, and total
+    dollars (None if any call was unpriced). This is what a 'what did this album
+    cost me' view reads."""
+    return _rollup(conn, album_id)
+
+
+def album_cost_report(conn: sqlite3.Connection, album_id: int) -> dict:
+    """Per-stage COGS breakdown plus the overall roll-up. The headline mirrors
+    album_summary; `stages` shows where the tokens and dollars went — vision is one
+    billed call per photo, arrange is a single call — which is the breakdown Gate 3
+    reads to turn a real gallery run into a $/album number."""
+    report = album_summary(conn, album_id)
+    report["album_id"] = album_id
+    stages = conn.execute(
+        "SELECT DISTINCT stage FROM inference_usage WHERE album_id = ? ORDER BY stage",
+        (album_id,),
+    ).fetchall()
+    report["stages"] = [
+        {"stage": r["stage"], **_rollup(conn, album_id, r["stage"])} for r in stages
+    ]
+    return report
