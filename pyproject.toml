@@ -11,6 +11,7 @@ dependencies = [
     "httpx",
     "reportlab",
     "python-multipart",   # parse HTML form POSTs (the waitlist signup form)
+    "python-dotenv",      # load .env (gitignored) so XAI_API_KEY stays off the shell/repo
 ]
 
 [project.optional-dependencies]

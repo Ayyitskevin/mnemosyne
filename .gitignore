@@ -21,6 +21,9 @@ venv/
 # Scratch / generated test images
 /scratch/
 
+# Local logs (per-photo vision cost metering, etc.)
+*.log
+
 # OS / editor noise
 .DS_Store
 *.swp
