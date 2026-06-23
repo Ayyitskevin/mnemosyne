@@ -91,16 +91,87 @@ def test_pipeline_error_becomes_failed_not_a_crash(conn, tmp_path, monkeypatch):
     assert "vision down" in row["error"]
 
 
-def test_recover_stuck_requeues_processing(conn, tmp_path):
+def test_reclaim_requeues_album_with_expired_lease(conn, tmp_path):
+    """A 'processing' album whose claim is older than the lease belongs to a dead
+    worker — it must come back to 'pending' so another worker finishes it."""
+    uid = _user(conn)
+    aid = pipeline.enqueue_album(conn, name="g", source_dir=tmp_path, owner_id=uid)
+    conn.execute(
+        "UPDATE albums SET status = 'processing', "
+        "claimed_at = datetime('now', '-3600 seconds') WHERE id = ?",
+        (aid,),
+    )
+    conn.commit()
+
+    assert worker.reclaim_stale(conn, lease_seconds=900) == 1
+    assert conn.execute(
+        "SELECT status FROM albums WHERE id = ?", (aid,)
+    ).fetchone()["status"] == "pending"
+
+
+def test_reclaim_treats_unstamped_processing_as_stale(conn, tmp_path):
+    """A 'processing' row with no claimed_at is from an older/unknown claim and is
+    reclaimed — this is what recovers albums stuck before the lease existed."""
     uid = _user(conn)
     aid = pipeline.enqueue_album(conn, name="g", source_dir=tmp_path, owner_id=uid)
     conn.execute("UPDATE albums SET status = 'processing' WHERE id = ?", (aid,))
     conn.commit()
 
-    assert worker.recover_stuck(conn) == 1
+    assert worker.reclaim_stale(conn) == 1
     assert conn.execute(
         "SELECT status FROM albums WHERE id = ?", (aid,)
     ).fetchone()["status"] == "pending"
+
+
+def test_reclaim_leaves_a_fresh_lease_alone(conn, tmp_path):
+    """A live sibling's in-flight album has a fresh claimed_at — reclaim must NOT
+    yank it, or two workers would process the same album at once."""
+    uid = _user(conn)
+    aid = pipeline.enqueue_album(conn, name="g", source_dir=tmp_path, owner_id=uid)
+    conn.execute(
+        "UPDATE albums SET status = 'processing', claimed_at = datetime('now') "
+        "WHERE id = ?",
+        (aid,),
+    )
+    conn.commit()
+
+    assert worker.reclaim_stale(conn, lease_seconds=900) == 0
+    assert conn.execute(
+        "SELECT status FROM albums WHERE id = ?", (aid,)
+    ).fetchone()["status"] == "processing"
+
+
+def test_atomic_claim_prevents_two_workers_taking_one_album(tmp_path):
+    """The whole point of the multi-process turn: two workers on the same DB must
+    never both claim the same pending album. The second worker's conditional
+    UPDATE matches no row (already 'processing'), so it claims nothing."""
+    path = tmp_path / "q.db"
+    a = db.connect(path)
+    db.migrate(a)
+    b = db.connect(path)  # a second process's worker connection
+    uid = auth.create_user(a, "a@example.com", "pw12345")["id"]
+    aid = pipeline.enqueue_album(a, name="g", source_dir=tmp_path, owner_id=uid)
+
+    # Reproduce the race window explicitly: both read the same pending candidate.
+    r1 = a.execute(
+        "SELECT id FROM albums WHERE status = 'pending' ORDER BY id LIMIT 1"
+    ).fetchone()
+    r2 = b.execute(
+        "SELECT id FROM albums WHERE status = 'pending' ORDER BY id LIMIT 1"
+    ).fetchone()
+    assert r1["id"] == r2["id"] == aid
+
+    claim = "UPDATE albums SET status = 'processing', claimed_at = datetime('now') WHERE id = ? AND status = 'pending'"
+    c1 = a.execute(claim, (aid,))
+    a.commit()
+    c2 = b.execute(claim, (aid,))
+    b.commit()
+    assert (c1.rowcount, c2.rowcount) == (1, 0)
+
+    # And through the real function: once a has it, b claims nothing.
+    assert worker._claim_one(b) is None
+    a.close()
+    b.close()
 
 
 def test_requeue_only_affects_failed_albums(conn, tmp_path):

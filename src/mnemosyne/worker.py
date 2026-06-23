@@ -3,12 +3,15 @@
 The web upload route returns immediately with a 'pending' album so a big gallery
 can't hang the request; this single daemon thread picks those up and runs the
 slow vision/arrange work, flipping each album to 'ready' or 'failed'. State lives
-on the album row (status + error), so progress is observable from the DB alone —
-no separate queue to inspect.
+on the album row (status + error + claimed_at), so progress is observable from
+the DB alone — no separate queue to inspect.
 
-Assumes a single server process (one worker thread). The CLI `serve` runs uvicorn
-with one worker, so that holds; scaling to multiple processes would need a real
-job queue with atomic claiming, which is the documented next turn.
+Safe to run as more than one process. Claiming is atomic (a conditional UPDATE,
+so two workers never grab the same album), and crash recovery is lease-based: a
+'processing' album whose claim has gone stale is assumed abandoned by a dead
+worker and re-queued, while a live sibling's fresh claim is left alone. There is
+no heartbeat, so a job that outruns the lease can be re-run — harmless because
+process_album is idempotent (see config.WORKER_LEASE_SECONDS).
 """
 from __future__ import annotations
 
@@ -17,7 +20,7 @@ import sqlite3
 import threading
 from pathlib import Path
 
-from mnemosyne import db, pipeline
+from mnemosyne import config, db, pipeline
 
 log = logging.getLogger("mnemosyne.worker")
 
@@ -27,31 +30,50 @@ log = logging.getLogger("mnemosyne.worker")
 _IDLE_POLL_SECONDS = 2.0
 
 
-def recover_stuck(conn: sqlite3.Connection) -> int:
-    """Reset any album left 'processing' back to 'pending'. A 'processing' row at
-    startup means the server died mid-job, so the work never finished — re-queue
-    it (process_album is idempotent, so retrying is safe). Returns how many were
-    recovered. Call once on boot before starting the worker."""
+def reclaim_stale(conn: sqlite3.Connection, lease_seconds: int | None = None) -> int:
+    """Re-queue albums whose 'processing' lease has expired — the worker that
+    claimed them died mid-job. claimed_at is the lease stamp; a row older than the
+    lease (or with no stamp, from a pre-lease/unknown claim) is treated as
+    abandoned and reset to 'pending' for another worker. A live sibling's job has
+    a fresh stamp and is untouched, which is what makes this safe to call from
+    every process — unlike a blanket reset. Returns how many were reclaimed.
+
+    process_album is idempotent, so re-running a reclaimed album is safe even in
+    the rare case a still-live job's lease expired before it finished."""
+    if lease_seconds is None:
+        lease_seconds = config.WORKER_LEASE_SECONDS
     cur = conn.execute(
-        "UPDATE albums SET status = 'pending' WHERE status = 'processing'"
+        "UPDATE albums SET status = 'pending', claimed_at = NULL "
+        "WHERE status = 'processing' "
+        "AND (claimed_at IS NULL OR claimed_at < datetime('now', ?))",
+        (f"-{int(lease_seconds)} seconds",),
     )
     conn.commit()
     return cur.rowcount
 
 
 def _claim_one(conn: sqlite3.Connection) -> int | None:
-    """Take the oldest pending album and mark it 'processing'. Single worker, so a
-    plain select-then-update is safe (no two threads racing for the same row)."""
-    row = conn.execute(
-        "SELECT id FROM albums WHERE status = 'pending' ORDER BY id LIMIT 1"
-    ).fetchone()
-    if row is None:
-        return None
-    conn.execute(
-        "UPDATE albums SET status = 'processing' WHERE id = ?", (row["id"],)
-    )
-    conn.commit()
-    return row["id"]
+    """Atomically take the oldest pending album and mark it 'processing', stamping
+    the lease. Safe across processes: the claim is a conditional UPDATE, and
+    SQLite serializes writers, so only the first worker to flip a given row out of
+    'pending' wins (rowcount 1); a worker that loses the race sees rowcount 0 and
+    tries the next candidate. Returns the claimed id, or None when nothing is
+    pending."""
+    while True:
+        row = conn.execute(
+            "SELECT id FROM albums WHERE status = 'pending' ORDER BY id LIMIT 1"
+        ).fetchone()
+        if row is None:
+            return None
+        cur = conn.execute(
+            "UPDATE albums SET status = 'processing', claimed_at = datetime('now') "
+            "WHERE id = ? AND status = 'pending'",
+            (row["id"],),
+        )
+        conn.commit()
+        if cur.rowcount == 1:
+            return row["id"]
+        # Another worker claimed this one between our SELECT and UPDATE — try again.
 
 
 def _run_one(conn: sqlite3.Connection, album_id: int) -> None:
@@ -89,9 +111,9 @@ class AlbumWorker:
     def start(self) -> None:
         conn = db.connect(self.db_path)
         try:
-            recovered = recover_stuck(conn)
+            recovered = reclaim_stale(conn)
             if recovered:
-                log.info("requeued %s album(s) left processing at shutdown", recovered)
+                log.info("reclaimed %s album(s) from a stale/dead worker", recovered)
         finally:
             conn.close()
         self._thread = threading.Thread(
@@ -116,6 +138,10 @@ class AlbumWorker:
             while not self._stop.is_set():
                 album_id = _claim_one(conn)
                 if album_id is None:
+                    # Nothing to claim — sweep for any sibling that died holding a
+                    # 'processing' album, then wait for a wake-up (or poll anyway).
+                    if reclaim_stale(conn):
+                        continue
                     self._wake.wait(timeout=_IDLE_POLL_SECONDS)
                     self._wake.clear()
                     continue

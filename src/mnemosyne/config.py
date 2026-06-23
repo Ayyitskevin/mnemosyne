@@ -33,6 +33,14 @@ UPLOAD_DIR = Path(os.environ.get("MNEMOSYNE_UPLOAD_DIR", "uploads"))
 # not a web stranger).
 MAX_ALBUM_UPLOAD = int(os.environ.get("MNEMOSYNE_MAX_ALBUM_UPLOAD", "500"))
 
+# How long (seconds) a worker's claim on a 'processing' album is trusted before
+# another worker may reclaim it. It guards crash recovery in a multi-process
+# setup: a job whose lease has gone stale is assumed to belong to a dead worker
+# and is re-queued. There is no heartbeat, so this must comfortably exceed the
+# longest real build — a job that outruns the lease can be re-run by a sibling,
+# which is wasteful but safe because process_album is idempotent.
+WORKER_LEASE_SECONDS = int(os.environ.get("MNEMOSYNE_WORKER_LEASE_SECONDS", "900"))
+
 # The local Ollama fleet on mickey. Phase 0 runs ENTIRELY on-box — images are
 # analyzed here and never leave the machine, so "we don't train on your images"
 # is true by construction. (When mnemosyne becomes a hosted SaaS, these point at
