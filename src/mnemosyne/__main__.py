@@ -2,6 +2,7 @@
 
 build  — run a folder through the whole pipeline (ingest -> look -> arrange).
 serve  — start the web preview at http://localhost:8000.
+export — render a laid-out album to a print-ready PDF.
 """
 from __future__ import annotations
 
@@ -22,6 +23,10 @@ def main() -> None:
     s = sub.add_parser("serve", help="serve the web preview")
     s.add_argument("--port", type=int, default=8000)
 
+    e = sub.add_parser("export", help="render an album to a print-ready PDF")
+    e.add_argument("album_id", type=int, help="album id to export")
+    e.add_argument("--out", default=None, help="output path (defaults to album-<id>.pdf)")
+
     args = parser.parse_args()
 
     if args.cmd == "build":
@@ -38,6 +43,14 @@ def main() -> None:
         import uvicorn
 
         uvicorn.run("mnemosyne.main:app", host="0.0.0.0", port=args.port)
+    elif args.cmd == "export":
+        from mnemosyne import export
+
+        conn = db.connect(config.DB_PATH)
+        db.migrate(conn)
+        out = args.out or f"album-{args.album_id}.pdf"
+        path = export.export_album(conn, args.album_id, out)
+        print(f"wrote {path}")
 
 
 if __name__ == "__main__":

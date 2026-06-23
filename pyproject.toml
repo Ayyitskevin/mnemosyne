@@ -9,6 +9,7 @@ dependencies = [
     "uvicorn[standard]",
     "pillow",
     "httpx",
+    "reportlab",
 ]
 
 [project.optional-dependencies]

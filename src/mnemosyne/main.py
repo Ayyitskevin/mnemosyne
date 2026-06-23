@@ -11,11 +11,14 @@ import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import os
+import tempfile
+
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 
-from mnemosyne import albums, config, db
+from mnemosyne import albums, config, db, export
 
 TEMPLATES = Jinja2Templates(
     directory=str(Path(__file__).resolve().parents[2] / "templates")
@@ -64,6 +67,24 @@ def show_album(
         request,
         "album.html",
         {"album": data["album"], "spreads": data["spreads"]},
+    )
+
+
+@app.get("/albums/{album_id}/pdf")
+def album_pdf(album_id: int, conn: sqlite3.Connection = Depends(get_conn)):
+    fd, tmp = tempfile.mkstemp(suffix=".pdf")
+    os.close(fd)
+    try:
+        export.export_album(conn, album_id, tmp)
+        pdf = Path(tmp).read_bytes()
+    except LookupError:
+        raise HTTPException(status_code=404, detail="no such album")
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="album-{album_id}.pdf"'},
     )
 
 
