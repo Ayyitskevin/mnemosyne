@@ -16,6 +16,7 @@ mnemosyne (keep ARGUS_VISION_BACKEND=mock on argus side).
 from __future__ import annotations
 
 import base64
+import io
 import json
 import sqlite3
 import time
@@ -23,6 +24,7 @@ import urllib.error
 import urllib.request
 
 import httpx
+from PIL import Image
 
 from mnemosyne import config
 
@@ -42,6 +44,42 @@ PROMPT = (
 def _b64(path: str) -> str:
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode()
+
+
+def _downscale_b64(path: str, max_px: int = 512) -> str:
+    """Base64 of the image downscaled so its longest side is <= max_px, as JPEG.
+
+    The biggest cost+privacy lever on the cloud vision path: the vision model only
+    needs to judge scene + hero-worthiness, which a 512px thumbnail answers as well
+    as a 40MP raw. Downscaling means (a) far fewer image tokens billed per photo and
+    (b) the vendor only ever receives a derivative, never the full-res sellable file.
+    """
+    with Image.open(path) as im:
+        im = im.convert("RGB")
+        im.thumbnail((max_px, max_px))
+        buf = io.BytesIO()
+        im.save(buf, format="JPEG", quality=85)
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def _parse_scene_hero(raw: str) -> dict:
+    """Coerce a model's JSON-ish reply into a clean {scene, hero_score} dict.
+
+    Cloud chat models sometimes wrap JSON in ```json fences or prose, so we slice to
+    the outermost braces before parsing. scene is clamped to 120 chars and hero_score
+    to 0..1 — the deterministic guardrail that keeps a chatty model from breaking the
+    arrange step (CLAUDE.md Rule 5: the model judges, code validates)."""
+    raw = (raw or "").strip()
+    start, end = raw.find("{"), raw.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        raw = raw[start : end + 1]
+    data = json.loads(raw)
+    scene = str(data.get("scene", "")).strip()[:120]
+    try:
+        score = float(data.get("hero_score", 0.0))
+    except (TypeError, ValueError):
+        score = 0.0
+    return {"scene": scene, "hero_score": max(0.0, min(1.0, score))}
 
 
 def _generate(payload: dict) -> dict:
@@ -99,12 +137,8 @@ def _analyze_one_via_argus(image_path: str) -> dict:
     return {"scene": scene, "hero_score": round(hero_score, 2)}
 
 
-def analyze_one(image_path: str) -> dict:
-    """Ask the vision model (or delegated argus) about one image; return {scene, hero_score}."""
-    if getattr(config, "ARGUS_URL", None):
-        return _analyze_one_via_argus(image_path)
-
-    # Original direct Ollama path
+def _analyze_one_via_ollama(image_path: str) -> dict:
+    """Original local path: full-res image to mickey's qwen3-vl over localhost."""
     payload = {
         "model": config.VISION_MODEL,
         "prompt": PROMPT,
@@ -117,14 +151,93 @@ def analyze_one(image_path: str) -> dict:
     # qwen3-vl is a thinking model: with format=json it emits the answer in the
     # `thinking` field and leaves `response` empty, so fall back to thinking.
     raw = resp.get("response") or resp.get("thinking") or ""
-    data = json.loads(raw)
+    return _parse_scene_hero(raw)
 
-    scene = str(data.get("scene", "")).strip()[:120]
+
+def _analyze_one_via_grok(image_path: str) -> dict:
+    """SaaS runtime path: a 512px thumbnail to xAI's OpenAI-compatible vision API.
+
+    Logs token usage + latency to mickey-routing.log so $/album is measurable from
+    call one (the per-photo cost is the COGS driver that scales with gallery size).
+    We deliberately DON'T send response_format — some xAI vision params 400 — and
+    lean on the strong "respond ONLY with JSON" prompt + the robust parse instead.
+    """
+    if not config.XAI_API_KEY:
+        raise RuntimeError("XAI_API_KEY not set — grok vision backend selected but no key")
+    b64 = _downscale_b64(image_path)
+    payload = {
+        "model": config.GROK_VISION_MODEL,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": PROMPT},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{b64}",
+                            "detail": "low",
+                        },
+                    },
+                ],
+            }
+        ],
+        "temperature": 0.2,
+    }
+    url = config.XAI_BASE_URL.rstrip("/") + "/chat/completions"
+    started = time.monotonic()
     try:
-        score = float(data.get("hero_score", 0.0))
-    except (TypeError, ValueError):
-        score = 0.0
-    return {"scene": scene, "hero_score": max(0.0, min(1.0, score))}
+        with httpx.Client(timeout=120) as c:
+            resp = c.post(
+                url,
+                json=payload,
+                headers={"Authorization": f"Bearer {config.XAI_API_KEY}"},
+            )
+            resp.raise_for_status()
+            body = resp.json()
+    except Exception as e:
+        raise RuntimeError(f"xAI vision call failed for {image_path}: {e}") from e
+    latency = time.monotonic() - started
+
+    usage = body.get("usage", {}) or {}
+    _log_grok_usage(image_path, usage, latency)
+
+    content = body["choices"][0]["message"]["content"]
+    return _parse_scene_hero(content)
+
+
+def _log_grok_usage(image_path: str, usage: dict, latency: float) -> None:
+    """One line per billed call so cost-per-album is reconstructable. Best-effort —
+    instrumentation must never crash an album build, so logging failures are swallowed."""
+    try:
+        line = (
+            f"{time.strftime('%Y-%m-%dT%H:%M:%S')} · vision · {config.GROK_VISION_MODEL}"
+            f" · {config.XAI_BASE_URL} · {latency:.2f}s · "
+            f"prompt={usage.get('prompt_tokens', '?')} "
+            f"completion={usage.get('completion_tokens', '?')} "
+            f"total={usage.get('total_tokens', '?')} · ok\n"
+        )
+        with open(config.ROUTING_LOG, "a") as f:
+            f.write(line)
+    except Exception:
+        pass
+
+
+def analyze_one(image_path: str) -> dict:
+    """Ask the selected vision backend about one image; return {scene, hero_score}.
+
+    Backend precedence: explicit config.VISION_BACKEND wins; otherwise local-first
+    default (argus if ARGUS_URL is set, else ollama). The grok path is OPT-IN only,
+    so the local dogfood/dev path is never silently swapped for a billed cloud call.
+    """
+    backend = (config.VISION_BACKEND or "").strip().lower()
+    if backend == "grok":
+        return _analyze_one_via_grok(image_path)
+    if backend == "ollama":
+        return _analyze_one_via_ollama(image_path)
+    if backend == "argus" or (not backend and getattr(config, "ARGUS_URL", None)):
+        return _analyze_one_via_argus(image_path)
+    return _analyze_one_via_ollama(image_path)
 
 
 def look_at_album(conn: sqlite3.Connection, album_id: int) -> int:
