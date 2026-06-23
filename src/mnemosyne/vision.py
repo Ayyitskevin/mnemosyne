@@ -7,6 +7,11 @@ ChatGPT wrapper — it reasons about the actual pixels, not a typed description.
 
 Runs entirely on mickey: the image bytes go to localhost Ollama and nowhere else,
 so "we never train on / never upload your images" is true by construction.
+
+Phase 3: if config.ARGUS_URL is set, analyze_one delegates to argus service
+(using path visible to argus, or local_file upload in future). This provides
+the integration adapter path without loading heavy vision models directly in
+mnemosyne (keep ARGUS_VISION_BACKEND=mock on argus side).
 """
 from __future__ import annotations
 
@@ -16,6 +21,8 @@ import sqlite3
 import time
 import urllib.error
 import urllib.request
+
+import httpx
 
 from mnemosyne import config
 
@@ -58,8 +65,46 @@ def _generate(payload: dict) -> dict:
     raise RuntimeError(f"Ollama vision call failed after retries: {last}")
 
 
+def _analyze_one_via_argus(image_path: str) -> dict:
+    """Delegate to argus /analyze (path assumed reachable by argus server).
+    Maps argus result (shot_type + keywords + culling.hero_potential) to mnemosyne
+    {scene, hero_score}. Safe when argus runs with VISION_BACKEND=mock.
+    """
+    base = (config.ARGUS_URL or "").rstrip("/")
+    if not base:
+        raise RuntimeError("ARGUS_URL not configured for argus delegation")
+    url = f"{base}/analyze"
+    try:
+        with httpx.Client(timeout=300) as c:
+            resp = c.post(url, data={"path": image_path})
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as e:
+        raise RuntimeError(f"Argus delegation failed for {image_path}: {e}") from e
+
+    if "error" in data:
+        # graceful fallback shape
+        return {"scene": "other", "hero_score": 0.5}
+
+    shot_type = data.get("shot_type", "other")
+    keywords = data.get("keywords", []) or []
+    scene = f"{shot_type} {keywords[0] if keywords else ''}".strip()[:120]
+
+    culling = data.get("culling", {}) or {}
+    try:
+        hero_score = float(culling.get("hero_potential", 0.5))
+    except (TypeError, ValueError):
+        hero_score = 0.5
+    hero_score = max(0.0, min(1.0, hero_score))
+    return {"scene": scene, "hero_score": round(hero_score, 2)}
+
+
 def analyze_one(image_path: str) -> dict:
-    """Ask the vision model about one image; return {scene, hero_score}."""
+    """Ask the vision model (or delegated argus) about one image; return {scene, hero_score}."""
+    if getattr(config, "ARGUS_URL", None):
+        return _analyze_one_via_argus(image_path)
+
+    # Original direct Ollama path
     payload = {
         "model": config.VISION_MODEL,
         "prompt": PROMPT,

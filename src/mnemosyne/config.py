@@ -19,3 +19,10 @@ OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 # reasoning model for the arrange step. Both overridable via env.
 VISION_MODEL = os.environ.get("MNEMOSYNE_VISION_MODEL", "qwen3-vl:32b")
 ARRANGE_MODEL = os.environ.get("MNEMOSYNE_ARRANGE_MODEL", "qwen3.6:35b")
+
+# Phase 3: optional delegation of vision "look" step to argus service (over tailnet or local).
+# When set (e.g. "http://mickey:8010" or "http://127.0.0.1:8010"), mnemosyne vision will
+# call argus /analyze (path must be visible to argus server) and map results to {scene, hero_score}.
+# This keeps mnemosyne from loading heavy vision models directly during integration dev.
+# Force argus side with ARGUS_VISION_BACKEND=mock.
+ARGUS_URL = os.environ.get("ARGUS_URL") or os.environ.get("MNEMOSYNE_ARGUS_URL")
