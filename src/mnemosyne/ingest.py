@@ -10,7 +10,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 # The file types we treat as album-eligible photos. Anything else in the folder
 # (sidecar files, .DS_Store, raw .CR2/.NEF) is ignored for Phase 0.
@@ -57,7 +57,8 @@ def ingest_photos(
         # Pillow reads dimensions from the header without decoding the whole
         # image, so this stays fast even on a big gallery.
         with Image.open(path) as im:
-            width, height = im.size
+            normalized = ImageOps.exif_transpose(im)
+            width, height = normalized.size
         conn.execute(
             "INSERT INTO photos (album_id, path, width, height) VALUES (?, ?, ?, ?)",
             (album_id, str(path), width, height),

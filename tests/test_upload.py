@@ -8,13 +8,21 @@ return — no model runs here (that's covered in test_worker.py).
 """
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 
 import pytest
+from PIL import Image
 from fastapi.testclient import TestClient
 
 from mnemosyne import config, db
 from mnemosyne.main import app, get_conn
+
+
+def _jpg(color=(200, 40, 40), size=(8, 8)) -> bytes:
+    buf = BytesIO()
+    Image.new("RGB", size, color).save(buf, "JPEG")
+    return buf.getvalue()
 
 
 @pytest.fixture
@@ -66,8 +74,8 @@ def test_upload_enqueues_pending_album_owned_by_user(web):
         "/albums/new",
         data={"name": "Trip"},
         files=[
-            ("photos", ("IMG_001.jpg", b"aaa", "image/jpeg")),
-            ("photos", ("IMG_002.jpg", b"bbb", "image/jpeg")),
+            ("photos", ("IMG_001.jpg", _jpg((255, 0, 0)), "image/jpeg")),
+            ("photos", ("IMG_002.jpg", _jpg((0, 255, 0)), "image/jpeg")),
         ],
     )
     assert r.status_code == 200
@@ -92,7 +100,7 @@ def test_blank_name_defaults_to_untitled(web):
     web.post(
         "/albums/new",
         data={"name": "   "},
-        files=[("photos", ("a.jpg", b"x", "image/jpeg"))],
+        files=[("photos", ("a.jpg", _jpg(), "image/jpeg"))],
     )
     assert _albums(web)[0]["name"] == "Untitled album"
 
@@ -102,7 +110,7 @@ def test_oversized_batch_is_rejected_without_enqueuing(web, monkeypatch):
     _login(web)
     r = web.post(
         "/albums/new",
-        files=[("photos", (f"{i}.jpg", b"x", "image/jpeg")) for i in range(3)],
+        files=[("photos", (f"{i}.jpg", _jpg((i, 0, 0)), "image/jpeg")) for i in range(3)],
     )
     assert r.status_code == 200
     assert "too many photos" in r.text.lower()
@@ -123,10 +131,45 @@ def test_traversal_filename_is_reduced_to_basename(web):
     _login(web)
     web.post(
         "/albums/new",
-        files=[("photos", ("../../etc/evil.jpg", b"x", "image/jpeg"))],
+        files=[("photos", ("../../etc/evil.jpg", _jpg(), "image/jpeg"))],
     )
     src = Path(_albums(web)[0]["source_dir"])
     saved = list(src.iterdir())
     # The crafted path can't escape the upload root: stored as its bare basename.
     assert [p.name for p in saved] == ["evil.jpg"]
     assert saved[0].parent == src
+
+
+def test_corrupt_image_suffix_is_rejected(web):
+    _login(web)
+    r = web.post(
+        "/albums/new",
+        files=[("photos", ("bad.jpg", b"not actually an image", "image/jpeg"))],
+    )
+    assert "no usable images" in r.text.lower()
+    assert _albums(web) == []
+
+
+def test_oversized_file_is_rejected(web, monkeypatch):
+    monkeypatch.setattr(config, "MAX_UPLOAD_FILE_BYTES", 8)
+    _login(web)
+    r = web.post(
+        "/albums/new",
+        files=[("photos", ("big.jpg", _jpg(), "image/jpeg"))],
+    )
+    assert "no usable images" in r.text.lower()
+    assert _albums(web) == []
+
+
+def test_duplicate_upload_content_is_saved_once(web):
+    _login(web)
+    data = _jpg()
+    web.post(
+        "/albums/new",
+        files=[
+            ("photos", ("a.jpg", data, "image/jpeg")),
+            ("photos", ("b.jpg", data, "image/jpeg")),
+        ],
+    )
+    src = Path(_albums(web)[0]["source_dir"])
+    assert [p.name for p in src.iterdir()] == ["a.jpg"]

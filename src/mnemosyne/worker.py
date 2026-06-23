@@ -3,8 +3,8 @@
 The web upload route returns immediately with a 'pending' album so a big gallery
 can't hang the request; this single daemon thread picks those up and runs the
 slow vision/arrange work, flipping each album to 'ready' or 'failed'. State lives
-on the album row (status + error + claimed_at + claim_token), so progress is
-observable from the DB alone — no separate queue to inspect.
+on the album row (status + error + attempts + timestamps + claim_token), so
+progress is observable from the DB alone — no separate queue to inspect.
 
 Safe to run as more than one process. Claiming is atomic (a conditional UPDATE,
 so two workers never grab the same album), and crash recovery is lease-based: a
@@ -46,7 +46,8 @@ def reclaim_stale(conn: sqlite3.Connection, lease_seconds: int | None = None) ->
     if lease_seconds is None:
         lease_seconds = config.WORKER_LEASE_SECONDS
     cur = conn.execute(
-        "UPDATE albums SET status = 'pending', claimed_at = NULL, claim_token = NULL "
+        "UPDATE albums SET status = 'pending', claimed_at = NULL, claim_token = NULL, "
+        "last_heartbeat = NULL "
         "WHERE status = 'processing' "
         "AND (claimed_at IS NULL OR claimed_at < datetime('now', ?))",
         (f"-{int(lease_seconds)} seconds",),
@@ -71,7 +72,8 @@ def _claim_one(conn: sqlite3.Connection) -> tuple[int, str] | None:
         claim_token = secrets.token_urlsafe(24)
         cur = conn.execute(
             "UPDATE albums SET status = 'processing', claimed_at = datetime('now'), "
-            "claim_token = ? "
+            "claim_token = ?, attempts = attempts + 1, started_at = datetime('now'), "
+            "finished_at = NULL, last_heartbeat = datetime('now'), error = NULL "
             "WHERE id = ? AND status = 'pending'",
             (claim_token, row["id"]),
         )
@@ -91,7 +93,8 @@ def _finish_claim(
     """Finish a job only if this worker still owns the live claim."""
     cur = conn.execute(
         "UPDATE albums SET status = ?, error = ?, claimed_at = NULL, "
-        "claim_token = NULL WHERE id = ? AND status = 'processing' "
+        "claim_token = NULL, finished_at = datetime('now'), "
+        "last_heartbeat = NULL WHERE id = ? AND status = 'processing' "
         "AND claim_token = ?",
         (status, error, album_id, claim_token),
     )

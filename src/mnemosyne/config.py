@@ -33,6 +33,16 @@ UPLOAD_DIR = Path(os.environ.get("MNEMOSYNE_UPLOAD_DIR", "uploads"))
 # not a web stranger).
 MAX_ALBUM_UPLOAD = int(os.environ.get("MNEMOSYNE_MAX_ALBUM_UPLOAD", "500"))
 
+# Per-file and pixel-count upload caps. A file may have a safe-looking suffix but
+# still be a decompression bomb or a huge payload; validate before anything is
+# committed into an album job.
+MAX_UPLOAD_FILE_BYTES = int(
+    os.environ.get("MNEMOSYNE_MAX_UPLOAD_FILE_BYTES", str(50 * 1024 * 1024))
+)
+MAX_UPLOAD_PIXELS = int(
+    os.environ.get("MNEMOSYNE_MAX_UPLOAD_PIXELS", str(100_000_000))
+)
+
 # How long (seconds) a worker's claim on a 'processing' album is trusted before
 # another worker may reclaim it. It guards crash recovery in a multi-process
 # setup: a job whose lease has gone stale is assumed to belong to a dead worker

@@ -73,7 +73,8 @@ def requeue_album(conn: sqlite3.Connection, album_id: int) -> bool:
     albums qualify, so this can't disturb a ready or in-flight album."""
     cur = conn.execute(
         "UPDATE albums SET status = 'pending', error = NULL, "
-        "claimed_at = NULL, claim_token = NULL "
+        "claimed_at = NULL, claim_token = NULL, started_at = NULL, "
+        "finished_at = NULL, last_heartbeat = NULL "
         "WHERE id = ? AND status = 'failed'",
         (album_id,),
     )

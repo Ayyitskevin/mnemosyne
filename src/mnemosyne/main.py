@@ -14,9 +14,11 @@ import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import hashlib
 import os
 import secrets
 import tempfile
+from io import BytesIO
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import (
@@ -27,6 +29,7 @@ from fastapi.responses import (
 )
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.templating import Jinja2Templates
+from PIL import Image, UnidentifiedImageError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -231,28 +234,52 @@ def index(
     )
 
 
+def _is_safe_image(data: bytes) -> bool:
+    """Validate the upload body, not just the filename. Pillow verifies the file
+    structure, then a second open reads dimensions because verify() consumes the
+    decoder state. Pixel caps keep hostile or accidental decompression bombs out
+    of the worker queue."""
+    try:
+        with Image.open(BytesIO(data)) as im:
+            im.verify()
+        with Image.open(BytesIO(data)) as im:
+            width, height = im.size
+    except (OSError, UnidentifiedImageError, ValueError):
+        return False
+    return width > 0 and height > 0 and width * height <= config.MAX_UPLOAD_PIXELS
+
+
 def _save_uploads(files: list[UploadFile], owner_id: int) -> tuple[Path, int]:
-    """Write the uploaded images into a fresh per-album folder and return it plus
-    the count saved. Only known image suffixes are kept; every name is reduced to
-    its basename so a crafted "../../etc/passwd" can't escape the upload root
-    (path-traversal guard). Colliding names get a numeric suffix so no file is
-    silently dropped. Files are taken in submit order, but ingest re-sorts by
-    filename, so original camera names still drive the sequence."""
+    """Write verified images into a fresh per-album folder and return it plus the
+    count saved. Known suffix, byte cap, real-image validation, pixel cap,
+    basename-only paths, duplicate-content skips, collision suffixes, and temp
+    writes all happen before the album job is enqueued."""
     dest_dir = config.UPLOAD_DIR / f"u{owner_id}_{secrets.token_hex(6)}"
     saved = 0
+    seen_hashes: set[bytes] = set()
     for f in files:
         if not f.filename:
             continue
         name = Path(f.filename).name  # strip any directory components
         if Path(name).suffix.lower() not in ingest.IMAGE_SUFFIXES:
             continue
+        data = f.file.read(config.MAX_UPLOAD_FILE_BYTES + 1)
+        if not data or len(data) > config.MAX_UPLOAD_FILE_BYTES:
+            continue
+        digest = hashlib.sha256(data).digest()
+        if digest in seen_hashes or not _is_safe_image(data):
+            continue
+        seen_hashes.add(digest)
+
         dest_dir.mkdir(parents=True, exist_ok=True)  # only once we have a keeper
         target = dest_dir / name
         n = 1
         while target.exists():
             target = dest_dir / f"{target.stem}_{n}{target.suffix}"
             n += 1
-        target.write_bytes(f.file.read())
+        tmp = dest_dir / f".{secrets.token_hex(8)}.upload"
+        tmp.write_bytes(data)
+        tmp.replace(target)
         saved += 1
     return dest_dir, saved
 
@@ -272,11 +299,9 @@ def create_album(
     user: dict = Depends(require_user),
     conn: sqlite3.Connection = Depends(get_conn),
 ):
-    """Create an album from a browser upload: save the photos, run the whole
-    vision pipeline inline, then show the draft. Small-and-sync by design — the
-    photo cap (config.MAX_ALBUM_UPLOAD) keeps one request bounded until there's a
-    background job runner. Validation lives here, at the boundary; any rejection
-    re-renders the form with a message rather than 500-ing."""
+    """Create an album from a browser upload: save verified photos, enqueue the
+    background album job, then redirect to the status page. Validation lives here,
+    at the public boundary, before any upload becomes worker input."""
     real = [f for f in photos if f.filename]
     if len(real) > config.MAX_ALBUM_UPLOAD:
         return TEMPLATES.TemplateResponse(
