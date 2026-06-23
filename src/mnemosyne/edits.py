@@ -50,3 +50,71 @@ def move_spread(
     )
     conn.commit()
     return True
+
+
+def set_hero(
+    conn: sqlite3.Connection, album_id: int, spread_id: int, photo_id: int
+) -> bool:
+    """Make `photo_id` the hero of its spread. Returns False unless the photo is
+    actually placed on that spread (so a stray id can't crown a photo that isn't
+    even there). The layout is recomputed from hero_photo_id on every render, so
+    this single update is all that changes — the new hero takes the dominant slot
+    and may flip the spread to a different template if its orientation differs."""
+    placed = conn.execute(
+        "SELECT 1 FROM spreads s JOIN placements pl ON pl.spread_id = s.id "
+        "WHERE s.id = ? AND s.album_id = ? AND pl.photo_id = ?",
+        (spread_id, album_id, photo_id),
+    ).fetchone()
+    if placed is None:
+        return False
+    conn.execute(
+        "UPDATE spreads SET hero_photo_id = ? WHERE id = ?", (photo_id, spread_id)
+    )
+    conn.commit()
+    return True
+
+
+def move_photo(
+    conn: sqlite3.Connection,
+    album_id: int,
+    spread_id: int,
+    photo_id: int,
+    direction: str,
+) -> bool:
+    """Swap a photo with its neighbour in slot order within one spread ('up' =
+    earlier slot, 'down' = later). The hero always takes the dominant area
+    regardless of slot, so this only reshuffles the supporting photos' fill order
+    (b, c, d). Returns False at the ends or if the photo isn't on the spread."""
+    if direction not in _DIRECTIONS:
+        raise ValueError(f"direction must be 'up' or 'down', got {direction!r}")
+    op, order = _DIRECTIONS[direction]
+
+    if conn.execute(
+        "SELECT 1 FROM spreads WHERE id = ? AND album_id = ?", (spread_id, album_id)
+    ).fetchone() is None:
+        return False
+
+    row = conn.execute(
+        "SELECT id, slot FROM placements WHERE spread_id = ? AND photo_id = ?",
+        (spread_id, photo_id),
+    ).fetchone()
+    if row is None:
+        return False
+    slot, placement_id = row["slot"], row["id"]
+
+    neighbour = conn.execute(
+        f"SELECT id, slot FROM placements WHERE spread_id = ? AND slot {op} ? "
+        f"ORDER BY slot {order} LIMIT 1",
+        (spread_id, slot),
+    ).fetchone()
+    if neighbour is None:
+        return False
+
+    conn.execute(
+        "UPDATE placements SET slot = ? WHERE id = ?", (neighbour["slot"], placement_id)
+    )
+    conn.execute(
+        "UPDATE placements SET slot = ? WHERE id = ?", (slot, neighbour["id"])
+    )
+    conn.commit()
+    return True

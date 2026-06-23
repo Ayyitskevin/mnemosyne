@@ -33,7 +33,16 @@
     .pages::after { content: ""; position: absolute; top: 0; bottom: 0; left: 50%;
                     width: 1px; background: rgba(255, 255, 255, .07);
                     pointer-events: none; }
-    .caption { color: #6f675b; font-size: .76rem; margin-top: .35rem; }
+    .caption { color: #6f675b; font-size: .76rem; margin-top: .5rem;
+               display: flex; flex-wrap: wrap; gap: .8rem; }
+    .photo-ctl { display: inline-flex; align-items: center; gap: .3rem; }
+    .photo-ctl.hero .scene { color: #e8e2d8; }
+    .photo-ctl form { margin: 0; display: inline; }
+    .photo-ctl button { background: #1b1814; color: #9b9183; border: 1px solid #2a2620;
+                        border-radius: 4px; min-width: 1.4rem; height: 1.3rem;
+                        cursor: pointer; font-size: .72rem; line-height: 1; padding: 0 .2rem; }
+    .photo-ctl button:hover { color: #e8e2d8; border-color: #4a443a; }
+    .photo-ctl .star { color: #d8b25a; }
   </style>
 </head>
 <body>
@@ -70,7 +79,28 @@
           {% endfor %}
         </div>
         <div class="caption">
-          {% for p in spread.photos %}{{ p.scene }}{% if p.is_hero %} ★{% endif %}{% if not loop.last %} · {% endif %}{% endfor %}
+          {% for p in spread.photos %}
+            <span class="photo-ctl{% if p.is_hero %} hero{% endif %}">
+              {% if p.is_hero %}
+                <span class="star" title="hero">&#9733;</span>
+              {% else %}
+                <form method="post" action="/albums/{{ album.id }}/spreads/{{ spread.id }}/hero/{{ p.id }}">
+                  <button type="submit" title="make hero">&#9734;</button>
+                </form>
+              {% endif %}
+              <span class="scene">{{ p.scene }}</span>
+              {% if not loop.first %}
+              <form method="post" action="/albums/{{ album.id }}/spreads/{{ spread.id }}/photos/{{ p.id }}/move/up">
+                <button type="submit" title="earlier slot">&larr;</button>
+              </form>
+              {% endif %}
+              {% if not loop.last %}
+              <form method="post" action="/albums/{{ album.id }}/spreads/{{ spread.id }}/photos/{{ p.id }}/move/down">
+                <button type="submit" title="later slot">&rarr;</button>
+              </form>
+              {% endif %}
+            </span>
+          {% endfor %}
         </div>
       </div>
     {% endfor %}

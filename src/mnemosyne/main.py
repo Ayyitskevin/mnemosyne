@@ -88,6 +88,31 @@ def move_spread(
     return RedirectResponse(f"/albums/{album_id}", status_code=303)
 
 
+@app.post("/albums/{album_id}/spreads/{spread_id}/hero/{photo_id}")
+def set_hero(
+    album_id: int,
+    spread_id: int,
+    photo_id: int,
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    edits.set_hero(conn, album_id, spread_id, photo_id)
+    return RedirectResponse(f"/albums/{album_id}", status_code=303)
+
+
+@app.post("/albums/{album_id}/spreads/{spread_id}/photos/{photo_id}/move/{direction}")
+def move_photo(
+    album_id: int,
+    spread_id: int,
+    photo_id: int,
+    direction: str,
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    if direction not in ("up", "down"):
+        raise HTTPException(status_code=400, detail="direction must be up or down")
+    edits.move_photo(conn, album_id, spread_id, photo_id, direction)
+    return RedirectResponse(f"/albums/{album_id}", status_code=303)
+
+
 @app.get("/albums/{album_id}/pdf")
 def album_pdf(album_id: int, conn: sqlite3.Connection = Depends(get_conn)):
     fd, tmp = tempfile.mkstemp(suffix=".pdf")
