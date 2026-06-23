@@ -71,6 +71,8 @@ def test_delete_cascades_children_and_removes_upload_dir(conn, tmp_path, monkeyp
     uid = _user(conn)
     aid = pipeline.enqueue_album(conn, name="g", source_dir=udir, owner_id=uid)
     pipeline.process_album(conn, aid)
+    conn.execute("UPDATE albums SET status = 'ready' WHERE id = ?", (aid,))
+    conn.commit()
 
     before = _counts(conn, aid)
     assert before["photos"] == 3 and before["spreads"] >= 1 and before["placements"] >= 1
@@ -103,6 +105,23 @@ def test_delete_leaves_cli_gallery_on_disk(conn, tmp_path, monkeypatch, no_model
 
 def test_delete_missing_album_is_false(conn):
     assert pipeline.delete_album(conn, 999) is False
+
+
+@pytest.mark.parametrize("status", ["pending", "processing"])
+def test_delete_refuses_active_albums(conn, tmp_path, monkeypatch, status):
+    monkeypatch.setattr(config, "UPLOAD_DIR", tmp_path / "uploads")
+    udir = _make_gallery(config.UPLOAD_DIR / "u1_active")
+    uid = _user(conn)
+    aid = pipeline.enqueue_album(conn, name="g", source_dir=udir, owner_id=uid)
+    conn.execute("UPDATE albums SET status = ? WHERE id = ?", (status, aid))
+    conn.commit()
+
+    assert pipeline.delete_album(conn, aid) is False
+    row = conn.execute(
+        "SELECT status FROM albums WHERE id = ?", (aid,)
+    ).fetchone()
+    assert row["status"] == status
+    assert udir.exists()
 
 
 # --- route-level owner gate ---------------------------------------------------
@@ -147,12 +166,31 @@ def test_owner_can_delete_via_route(web):
     uid = _signup(web, "owner@example.com")
     c = db.connect(web._db_path)
     aid = pipeline.enqueue_album(c, name="g", source_dir=web._db_path.parent, owner_id=uid)
+    c.execute("UPDATE albums SET status = 'failed' WHERE id = ?", (aid,))
+    c.commit()
     c.close()
 
     r = web.post(f"/albums/{aid}/delete")
     assert r.status_code == 200  # followed redirect to /albums
     assert str(r.url).endswith("/albums")
     assert _album_count(web) == 0
+
+
+def test_active_album_delete_route_redirects_back_without_deleting(web):
+    uid = _signup(web, "owner@example.com")
+    c = db.connect(web._db_path)
+    aid = pipeline.enqueue_album(c, name="g", source_dir=web._db_path.parent, owner_id=uid)
+    c.close()
+
+    r = web.get(f"/albums/{aid}/delete")
+    assert r.status_code == 200
+    assert str(r.url).endswith(f"/albums/{aid}")
+    assert _album_count(web) == 1
+
+    r = web.post(f"/albums/{aid}/delete")
+    assert r.status_code == 200
+    assert str(r.url).endswith(f"/albums/{aid}")
+    assert _album_count(web) == 1
 
 
 def test_cross_tenant_delete_is_404_and_keeps_album(web):

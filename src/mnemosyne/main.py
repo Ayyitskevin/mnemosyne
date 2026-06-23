@@ -362,6 +362,8 @@ def delete_album_form(
     it. 404s on a non-owned id like every other album route."""
     _require_owned_album(conn, album_id, user)
     album = albums.get_album(conn, album_id, user["id"])
+    if album["status"] in ("pending", "processing"):
+        return RedirectResponse(f"/albums/{album_id}", status_code=303)
     return TEMPLATES.TemplateResponse(
         request, "delete_confirm.html", {"album": album, "user": user}
     )
@@ -376,8 +378,9 @@ def delete_album(
     """Permanently delete an album and its photos/spreads/files (owner only).
     Irreversible, so it's reached only via POST from the confirm page."""
     _require_owned_album(conn, album_id, user)
-    pipeline.delete_album(conn, album_id)
-    return RedirectResponse("/albums", status_code=303)
+    if pipeline.delete_album(conn, album_id):
+        return RedirectResponse("/albums", status_code=303)
+    return RedirectResponse(f"/albums/{album_id}", status_code=303)
 
 
 def _require_owned_album(conn, album_id: int, user: dict) -> None:

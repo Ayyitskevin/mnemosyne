@@ -3,19 +3,22 @@
 The web upload route returns immediately with a 'pending' album so a big gallery
 can't hang the request; this single daemon thread picks those up and runs the
 slow vision/arrange work, flipping each album to 'ready' or 'failed'. State lives
-on the album row (status + error + claimed_at), so progress is observable from
-the DB alone — no separate queue to inspect.
+on the album row (status + error + claimed_at + claim_token), so progress is
+observable from the DB alone — no separate queue to inspect.
 
 Safe to run as more than one process. Claiming is atomic (a conditional UPDATE,
 so two workers never grab the same album), and crash recovery is lease-based: a
 'processing' album whose claim has gone stale is assumed abandoned by a dead
-worker and re-queued, while a live sibling's fresh claim is left alone. There is
-no heartbeat, so a job that outruns the lease can be re-run — harmless because
-process_album is idempotent (see config.WORKER_LEASE_SECONDS).
+worker and re-queued, while a live sibling's fresh claim is left alone. Completion
+is claim-token checked, so a reclaimed older worker cannot overwrite the newer
+claim's result. There is no heartbeat, so a job that outruns the lease can be
+re-run — harmless because process_album is idempotent (see
+config.WORKER_LEASE_SECONDS).
 """
 from __future__ import annotations
 
 import logging
+import secrets
 import sqlite3
 import threading
 from pathlib import Path
@@ -43,7 +46,7 @@ def reclaim_stale(conn: sqlite3.Connection, lease_seconds: int | None = None) ->
     if lease_seconds is None:
         lease_seconds = config.WORKER_LEASE_SECONDS
     cur = conn.execute(
-        "UPDATE albums SET status = 'pending', claimed_at = NULL "
+        "UPDATE albums SET status = 'pending', claimed_at = NULL, claim_token = NULL "
         "WHERE status = 'processing' "
         "AND (claimed_at IS NULL OR claimed_at < datetime('now', ?))",
         (f"-{int(lease_seconds)} seconds",),
@@ -52,49 +55,67 @@ def reclaim_stale(conn: sqlite3.Connection, lease_seconds: int | None = None) ->
     return cur.rowcount
 
 
-def _claim_one(conn: sqlite3.Connection) -> int | None:
+def _claim_one(conn: sqlite3.Connection) -> tuple[int, str] | None:
     """Atomically take the oldest pending album and mark it 'processing', stamping
-    the lease. Safe across processes: the claim is a conditional UPDATE, and
-    SQLite serializes writers, so only the first worker to flip a given row out of
-    'pending' wins (rowcount 1); a worker that loses the race sees rowcount 0 and
-    tries the next candidate. Returns the claimed id, or None when nothing is
-    pending."""
+    the lease and a per-claim token. Safe across processes: the claim is a
+    conditional UPDATE, and SQLite serializes writers, so only the first worker to
+    flip a given row out of 'pending' wins (rowcount 1); a worker that loses the
+    race sees rowcount 0 and tries the next candidate. Returns the claimed
+    (album id, claim token), or None when nothing is pending."""
     while True:
         row = conn.execute(
             "SELECT id FROM albums WHERE status = 'pending' ORDER BY id LIMIT 1"
         ).fetchone()
         if row is None:
             return None
+        claim_token = secrets.token_urlsafe(24)
         cur = conn.execute(
-            "UPDATE albums SET status = 'processing', claimed_at = datetime('now') "
+            "UPDATE albums SET status = 'processing', claimed_at = datetime('now'), "
+            "claim_token = ? "
             "WHERE id = ? AND status = 'pending'",
-            (row["id"],),
+            (claim_token, row["id"]),
         )
         conn.commit()
         if cur.rowcount == 1:
-            return row["id"]
+            return row["id"], claim_token
         # Another worker claimed this one between our SELECT and UPDATE — try again.
 
 
-def _run_one(conn: sqlite3.Connection, album_id: int) -> None:
+def _finish_claim(
+    conn: sqlite3.Connection,
+    album_id: int,
+    claim_token: str,
+    status: str,
+    error: str | None,
+) -> bool:
+    """Finish a job only if this worker still owns the live claim."""
+    cur = conn.execute(
+        "UPDATE albums SET status = ?, error = ?, claimed_at = NULL, "
+        "claim_token = NULL WHERE id = ? AND status = 'processing' "
+        "AND claim_token = ?",
+        (status, error, album_id, claim_token),
+    )
+    conn.commit()
+    return cur.rowcount == 1
+
+
+def _run_one(conn: sqlite3.Connection, album_id: int, claim_token: str) -> None:
     """Process one claimed album, recording the outcome on its row. Any failure
-    becomes status='failed' with the reason, never a crashed worker thread."""
+    becomes status='failed' with the reason, never a crashed worker thread. The
+    final write is guarded by the same claim token, so a worker whose lease was
+    reclaimed cannot clobber the newer owner's result."""
     try:
         summary = pipeline.process_album(conn, album_id)
-        conn.execute(
-            "UPDATE albums SET status = 'ready', error = NULL WHERE id = ?",
-            (album_id,),
-        )
-        conn.commit()
-        log.info("album %s ready: %s", album_id, summary)
+        if _finish_claim(conn, album_id, claim_token, "ready", None):
+            log.info("album %s ready: %s", album_id, summary)
+        else:
+            log.info("album %s finished after its claim was superseded", album_id)
     except Exception as exc:  # noqa: BLE001 — a bad album must not kill the worker
         conn.rollback()
-        conn.execute(
-            "UPDATE albums SET status = 'failed', error = ? WHERE id = ?",
-            (str(exc)[:500], album_id),
-        )
-        conn.commit()
-        log.exception("album %s failed", album_id)
+        if _finish_claim(conn, album_id, claim_token, "failed", str(exc)[:500]):
+            log.exception("album %s failed", album_id)
+        else:
+            log.exception("album %s failed after its claim was superseded", album_id)
 
 
 class AlbumWorker:
@@ -136,8 +157,8 @@ class AlbumWorker:
         conn = db.connect(self.db_path)
         try:
             while not self._stop.is_set():
-                album_id = _claim_one(conn)
-                if album_id is None:
+                claim = _claim_one(conn)
+                if claim is None:
                     # Nothing to claim — sweep for any sibling that died holding a
                     # 'processing' album, then wait for a wake-up (or poll anyway).
                     if reclaim_stale(conn):
@@ -145,6 +166,7 @@ class AlbumWorker:
                     self._wake.wait(timeout=_IDLE_POLL_SECONDS)
                     self._wake.clear()
                     continue
-                _run_one(conn, album_id)
+                album_id, claim_token = claim
+                _run_one(conn, album_id, claim_token)
         finally:
             conn.close()

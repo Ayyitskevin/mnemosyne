@@ -52,13 +52,18 @@ def test_claim_then_run_takes_album_to_ready(conn, tmp_path, no_models):
     gdir = _make_gallery(tmp_path, 3)
     aid = pipeline.enqueue_album(conn, name="g", source_dir=gdir, owner_id=uid)
 
-    assert worker._claim_one(conn) == aid
+    claim = worker._claim_one(conn)
+    assert claim is not None
+    claimed_id, claim_token = claim
+    assert claimed_id == aid
     # Claimed albums are marked processing before the work runs.
-    assert conn.execute(
-        "SELECT status FROM albums WHERE id = ?", (aid,)
-    ).fetchone()["status"] == "processing"
+    row = conn.execute(
+        "SELECT status, claim_token FROM albums WHERE id = ?", (aid,)
+    ).fetchone()
+    assert row["status"] == "processing"
+    assert row["claim_token"] == claim_token
 
-    worker._run_one(conn, aid)
+    worker._run_one(conn, aid, claim_token)
     row = conn.execute("SELECT status, error FROM albums WHERE id = ?", (aid,)).fetchone()
     assert row["status"] == "ready"
     assert row["error"] is None
@@ -83,8 +88,9 @@ def test_pipeline_error_becomes_failed_not_a_crash(conn, tmp_path, monkeypatch):
         raise RuntimeError("vision down")
 
     monkeypatch.setattr(vision, "analyze_one", boom)
-    worker._claim_one(conn)
-    worker._run_one(conn, aid)  # must not raise
+    claim = worker._claim_one(conn)
+    assert claim is not None
+    worker._run_one(conn, aid, claim[1])  # must not raise
 
     row = conn.execute("SELECT status, error FROM albums WHERE id = ?", (aid,)).fetchone()
     assert row["status"] == "failed"
@@ -104,9 +110,11 @@ def test_reclaim_requeues_album_with_expired_lease(conn, tmp_path):
     conn.commit()
 
     assert worker.reclaim_stale(conn, lease_seconds=900) == 1
-    assert conn.execute(
-        "SELECT status FROM albums WHERE id = ?", (aid,)
-    ).fetchone()["status"] == "pending"
+    row = conn.execute(
+        "SELECT status, claim_token FROM albums WHERE id = ?", (aid,)
+    ).fetchone()
+    assert row["status"] == "pending"
+    assert row["claim_token"] is None
 
 
 def test_reclaim_treats_unstamped_processing_as_stale(conn, tmp_path):
@@ -118,9 +126,11 @@ def test_reclaim_treats_unstamped_processing_as_stale(conn, tmp_path):
     conn.commit()
 
     assert worker.reclaim_stale(conn) == 1
-    assert conn.execute(
-        "SELECT status FROM albums WHERE id = ?", (aid,)
-    ).fetchone()["status"] == "pending"
+    row = conn.execute(
+        "SELECT status, claim_token FROM albums WHERE id = ?", (aid,)
+    ).fetchone()
+    assert row["status"] == "pending"
+    assert row["claim_token"] is None
 
 
 def test_reclaim_leaves_a_fresh_lease_alone(conn, tmp_path):
@@ -161,10 +171,13 @@ def test_atomic_claim_prevents_two_workers_taking_one_album(tmp_path):
     ).fetchone()
     assert r1["id"] == r2["id"] == aid
 
-    claim = "UPDATE albums SET status = 'processing', claimed_at = datetime('now') WHERE id = ? AND status = 'pending'"
-    c1 = a.execute(claim, (aid,))
+    claim = (
+        "UPDATE albums SET status = 'processing', claimed_at = datetime('now'), "
+        "claim_token = ? WHERE id = ? AND status = 'pending'"
+    )
+    c1 = a.execute(claim, ("worker-a", aid))
     a.commit()
-    c2 = b.execute(claim, (aid,))
+    c2 = b.execute(claim, ("worker-b", aid))
     b.commit()
     assert (c1.rowcount, c2.rowcount) == (1, 0)
 
@@ -174,6 +187,36 @@ def test_atomic_claim_prevents_two_workers_taking_one_album(tmp_path):
     b.close()
 
 
+def test_superseded_claim_cannot_overwrite_newer_result(conn, tmp_path):
+    """If a job outruns the lease, the old worker may still finish later. Its
+    final write must not clobber the newer worker's live claim/result."""
+    uid = _user(conn)
+    aid = pipeline.enqueue_album(conn, name="g", source_dir=tmp_path, owner_id=uid)
+    old_claim = worker._claim_one(conn)
+    assert old_claim is not None
+    old_token = old_claim[1]
+
+    conn.execute(
+        "UPDATE albums SET claimed_at = datetime('now', '-3600 seconds') "
+        "WHERE id = ?",
+        (aid,),
+    )
+    conn.commit()
+    assert worker.reclaim_stale(conn, lease_seconds=900) == 1
+    new_claim = worker._claim_one(conn)
+    assert new_claim is not None
+    new_token = new_claim[1]
+
+    assert worker._finish_claim(conn, aid, new_token, "failed", "new result")
+    assert not worker._finish_claim(conn, aid, old_token, "ready", None)
+    row = conn.execute(
+        "SELECT status, error, claim_token FROM albums WHERE id = ?", (aid,)
+    ).fetchone()
+    assert row["status"] == "failed"
+    assert row["error"] == "new result"
+    assert row["claim_token"] is None
+
+
 def test_requeue_only_affects_failed_albums(conn, tmp_path):
     uid = _user(conn)
     aid = pipeline.enqueue_album(conn, name="g", source_dir=tmp_path, owner_id=uid)
@@ -181,8 +224,12 @@ def test_requeue_only_affects_failed_albums(conn, tmp_path):
     conn.execute("UPDATE albums SET status = 'failed', error = 'x' WHERE id = ?", (aid,))
     conn.commit()
     assert pipeline.requeue_album(conn, aid) is True
-    row = conn.execute("SELECT status, error FROM albums WHERE id = ?", (aid,)).fetchone()
+    row = conn.execute(
+        "SELECT status, error, claimed_at, claim_token FROM albums WHERE id = ?",
+        (aid,),
+    ).fetchone()
     assert row["status"] == "pending" and row["error"] is None
+    assert row["claimed_at"] is None and row["claim_token"] is None
 
     # A ready album is left untouched.
     conn.execute("UPDATE albums SET status = 'ready' WHERE id = ?", (aid,))

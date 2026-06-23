@@ -72,7 +72,8 @@ def requeue_album(conn: sqlite3.Connection, album_id: int) -> bool:
     the stale error). Returns True if it actually re-queued one — only failed
     albums qualify, so this can't disturb a ready or in-flight album."""
     cur = conn.execute(
-        "UPDATE albums SET status = 'pending', error = NULL "
+        "UPDATE albums SET status = 'pending', error = NULL, "
+        "claimed_at = NULL, claim_token = NULL "
         "WHERE id = ? AND status = 'failed'",
         (album_id,),
     )
@@ -82,7 +83,11 @@ def requeue_album(conn: sqlite3.Connection, album_id: int) -> bool:
 
 def delete_album(conn: sqlite3.Connection, album_id: int) -> bool:
     """Permanently remove an album and everything that hangs off it. Returns True
-    if a row was actually deleted (False if the id was already gone).
+    if a row was actually deleted (False if the id was missing or still active).
+
+    Pending/processing albums are deliberately not hard-deleted: a worker may
+    already hold their id, and SQLite can reuse deleted rowids. Waiting until the
+    album is ready or failed keeps a late worker from writing into a newer album.
 
     The schema has no ON DELETE CASCADE and foreign keys are enforced, so children
     are deleted in FK-safe order: placements first (they point at both spreads and
@@ -92,9 +97,9 @@ def delete_album(conn: sqlite3.Connection, album_id: int) -> bool:
     never touches the operator's original gallery on disk.
     """
     row = conn.execute(
-        "SELECT source_dir FROM albums WHERE id = ?", (album_id,)
+        "SELECT source_dir, status FROM albums WHERE id = ?", (album_id,)
     ).fetchone()
-    if row is None:
+    if row is None or row["status"] in {"pending", "processing"}:
         return False
 
     conn.execute(
