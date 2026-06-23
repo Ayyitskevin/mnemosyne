@@ -36,8 +36,20 @@ PROMPT = (
     "story, e.g. 'wide interior establishing shot', 'overhead hero plated dish', "
     "'macro food detail', 'chef plating action', 'cocktail/drink detail', "
     "'closing ambiance shot'. "
-    "hero_score = a float 0.0-1.0 for how striking and album-cover-worthy this "
-    "ONE image is on its own (a stunning hero dish ~0.9, a small detail ~0.3)."
+    "hero_score = a float 0.0-1.0 for how striking and album-cover-worthy this ONE "
+    "image is on its own. BE DISCERNING AND USE THE FULL RANGE — in any real "
+    "gallery MOST shots are NOT heroes, so most scores should fall BELOW 0.6. "
+    "Reserve high scores; do not bunch everything near 0.8. Calibrate to this "
+    "rubric: "
+    "0.9-1.0 = exceptional, genuinely cover-worthy (a stunning plated hero dish, "
+    "a show-stopping wide); "
+    "0.7-0.85 = strong feature shot, would anchor a spread but not the cover; "
+    "0.4-0.65 = solid supporting shot (ambiance, table setting, a nice drink); "
+    "0.2-0.35 = a small detail or context filler (a macro crumb, a napkin, a "
+    "hand); "
+    "0.0-0.15 = weak or throwaway. "
+    "A pleasant cocktail or latte-art detail is supporting (~0.4-0.5), NOT a hero. "
+    "Judge THIS photo honestly against that scale."
 )
 
 
