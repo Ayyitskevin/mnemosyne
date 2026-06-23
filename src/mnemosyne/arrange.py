@@ -19,10 +19,13 @@ _SYSTEM = (
     "shoot. You will get a list of photos as (id, scene, hero_score, orientation). "
     "Design the album as an ordered list of two-page SPREADS that tells the story "
     "of the shoot: arrival/exterior -> ambiance -> details & drinks -> hero dishes "
-    "-> action -> dessert -> closing. Rules: each spread holds 1 to 4 photos; do "
-    "NOT crowd two high hero_score photos onto one spread — give a striking shot "
-    "its own spread or make it the clear hero; mix orientations so a spread looks "
-    "balanced; use EVERY photo exactly once. "
+    "-> action -> dessert -> closing. Rules: each spread holds 1 to 4 photos, and "
+    "MOST spreads should hold 3 or 4 — a printed album breathes through full, varied "
+    "spreads, not a slideshow of half-empty pages. Reserve a 1-photo spread ONLY for "
+    "a single standout hero (the very highest hero_score), and never use more than "
+    "one or two such solo spreads in the whole album. Do NOT crowd two high "
+    "hero_score photos onto one spread — give each its own spread as the clear hero. "
+    "Mix orientations so a spread looks balanced; use EVERY photo exactly once. "
     'Respond ONLY as JSON: {"spreads": [{"photos": [id, ...], "hero": id}, ...]} '
     "in album order."
 )
@@ -62,17 +65,45 @@ def _ask_model(photos: list[dict]) -> list[dict] | None:
     except (urllib.error.URLError, json.JSONDecodeError, KeyError, TimeoutError):
         return None
 
-    # Validate: every photo placed exactly once, hero is on its spread.
-    want = {p["id"] for p in photos}
-    seen: list[int] = []
-    for s in spreads:
-        ids = s.get("photos", [])
-        if not (1 <= len(ids) <= 4) or s.get("hero") not in ids:
-            return None
-        seen.extend(ids)
-    if sorted(seen) != sorted(want):
+    if not isinstance(spreads, list) or not spreads:
         return None
-    return spreads
+    return _repair(spreads, photos)
+
+
+def _repair(spreads: list[dict], photos: list[dict]) -> list[dict]:
+    """Reconcile the model's spreads against the real photo set. The reasoning
+    model reliably nails the story order and grouping but routinely fumbles the
+    exact ids — duplicating one, hallucinating a non-existent one. That's a
+    deterministic correctness problem, not a creative one (Rule 5), so we fix it
+    in code instead of rejecting good sequencing: drop unknown/duplicate ids,
+    clamp spreads to 4, then pack any photo the model never placed into trailing
+    spreads. Result is valid by construction — every real photo placed once."""
+    valid = {p["id"]: p for p in photos}
+
+    def _hero(ids: list[int], wanted: int | None) -> int:
+        if wanted in ids:
+            return wanted
+        return max(ids, key=lambda i: valid[i]["hero_score"] or 0.0)
+
+    placed: set[int] = set()
+    repaired: list[dict] = []
+    for s in spreads:
+        ids: list[int] = []
+        for pid in s.get("photos", []):
+            if len(ids) >= 4:
+                break
+            if pid in valid and pid not in placed:
+                ids.append(pid)
+                placed.add(pid)
+        if ids:
+            repaired.append({"photos": ids, "hero": _hero(ids, s.get("hero"))})
+
+    missing = [p["id"] for p in photos if p["id"] not in placed]
+    for i in range(0, len(missing), 4):
+        chunk = missing[i : i + 4]
+        repaired.append({"photos": chunk, "hero": _hero(chunk, None)})
+
+    return repaired
 
 
 def _fallback(photos: list[dict], per_spread: int = 3) -> list[dict]:
