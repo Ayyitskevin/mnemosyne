@@ -21,16 +21,31 @@ DB_PATH = Path(os.environ.get("MNEMOSYNE_DB", "mnemosyne.db"))
 # so restarts don't drop sessions — the dev fallback is a fresh key per boot.
 SECRET_KEY = os.environ.get("MNEMOSYNE_SECRET_KEY") or os.urandom(32).hex()
 
-# Where web-uploaded photos are written, one subfolder per created album. Ingest
-# records absolute paths into these files, and /photo/<id> later serves them off
-# disk, so this is permanent storage, not scratch — gitignored, per-machine.
+# The root the local storage driver writes photo bytes under, one `a<album_id>/`
+# subfolder per album. Ingest `put`s each photo here under a relative storage key
+# and /photo/<id> serves it back through the seam, so this is permanent storage,
+# not scratch — gitignored, per-machine. (With STORAGE_BACKEND=r2 the same keys
+# live in a bucket and this path is unused.)
 UPLOAD_DIR = Path(os.environ.get("MNEMOSYNE_UPLOAD_DIR", "uploads"))
 
 # Which storage driver backs photo bytes (see storage.py). "local" = this box's
-# filesystem (the only driver today). An object-store driver ("r2"/"s3") drops in
-# here later without touching ingest/vision/export/web — that swappability is the
-# whole point of the storage seam.
+# filesystem (the default). "r2" = Cloudflare R2 object storage — the dormant
+# driver that lets mnemosyne run off a single box. Flipping this var is the whole
+# swap; ingest/vision/export/web never change because they speak only the seam.
 STORAGE_BACKEND = os.environ.get("MNEMOSYNE_STORAGE_BACKEND", "local")
+
+# Cloudflare R2 (S3-compatible) settings — read only when STORAGE_BACKEND=r2. All
+# secrets live in .env (gitignored, per-machine), NEVER in the repo. Unset until a
+# real bucket exists; the R2 driver fails loud if selected without these. ENDPOINT
+# is the account's S3 API URL (https://<acct>.r2.cloudflarestorage.com). PUBLIC_
+# BASE_URL, when set (an r2.dev or custom-domain bucket), makes /photo redirect to
+# a plain public URL instead of minting a presigned one each request.
+R2_ENDPOINT = os.environ.get("MNEMOSYNE_R2_ENDPOINT")
+R2_BUCKET = os.environ.get("MNEMOSYNE_R2_BUCKET")
+R2_ACCESS_KEY_ID = os.environ.get("MNEMOSYNE_R2_ACCESS_KEY_ID")
+R2_SECRET_ACCESS_KEY = os.environ.get("MNEMOSYNE_R2_SECRET_ACCESS_KEY")
+R2_PUBLIC_BASE_URL = os.environ.get("MNEMOSYNE_R2_PUBLIC_BASE_URL")
+R2_SIGNED_URL_TTL = int(os.environ.get("MNEMOSYNE_R2_SIGNED_URL_TTL", "3600"))
 
 # Cap on photos per web upload. The vision pipeline now runs in the background
 # worker, not in the request, so this is no longer about request timeouts — it's

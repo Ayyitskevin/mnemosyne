@@ -16,7 +16,7 @@ MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 def connect(db_path: str | Path) -> sqlite3.Connection:
     """Open a connection with the settings mnemosyne always wants."""
     conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row              # rows act like dicts: row["path"]
+    conn.row_factory = sqlite3.Row              # rows act like dicts: row["name"]
     conn.execute("PRAGMA journal_mode = WAL")   # readers don't block the writer
     conn.execute("PRAGMA foreign_keys = ON")    # actually enforce REFERENCES
     conn.execute("PRAGMA busy_timeout = 5000")  # wait up to 5s for a lock instead

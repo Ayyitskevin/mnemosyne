@@ -24,9 +24,9 @@ def conn(tmp_path) -> sqlite3.Connection:
     # belongs to a different spread so it can stand in for "not on this spread".
     for pid in (100, 101, 102, 200):
         c.execute(
-            "INSERT INTO photos (id, album_id, path, width, height) "
+            "INSERT INTO photos (id, album_id, storage_key, width, height) "
             "VALUES (?, 1, ?, 1200, 800)",
-            (pid, f"/x/{pid}.jpg"),
+            (pid, f"a1/{pid}.jpg"),
         )
     for slot, pid in enumerate((100, 101, 102), start=1):
         c.execute(

@@ -7,10 +7,13 @@ in later.
 """
 from __future__ import annotations
 
+import io
 import sqlite3
 from pathlib import Path
 
 from PIL import Image, ImageOps
+
+from mnemosyne import storage
 
 # The file types we treat as album-eligible photos. Anything else in the folder
 # (sidecar files, .DS_Store, raw .CR2/.NEF) is ignored for Phase 0.
@@ -50,18 +53,25 @@ def ingest_photos(
     if not src.is_dir():
         raise NotADirectoryError(f"not a folder: {src}")
 
+    store = storage.get_storage()
     added = 0
     for path in sorted(src.iterdir()):
         if path.suffix.lower() not in IMAGE_SUFFIXES:
             continue
-        # Pillow reads dimensions from the header without decoding the whole
-        # image, so this stays fast even on a big gallery.
-        with Image.open(path) as im:
-            normalized = ImageOps.exif_transpose(im)
-            width, height = normalized.size
+        # Read the full bytes and hand them to the storage driver — the bytes enter
+        # storage THROUGH the seam, so they land on local disk today or in a bucket
+        # tomorrow with no change here. The key is opaque + album-scoped, so two
+        # albums can hold a same-named file and a whole album's bytes drop in one
+        # delete_prefix later. Dimensions come from those same bytes (no second read).
+        data = path.read_bytes()
+        with Image.open(io.BytesIO(data)) as im:
+            width, height = ImageOps.exif_transpose(im).size
+        key = f"a{album_id}/{path.name}"
+        store.put(key, data)
         conn.execute(
-            "INSERT INTO photos (album_id, path, width, height) VALUES (?, ?, ?, ?)",
-            (album_id, str(path), width, height),
+            "INSERT INTO photos (album_id, storage_key, width, height) "
+            "VALUES (?, ?, ?, ?)",
+            (album_id, key, width, height),
         )
         added += 1
 

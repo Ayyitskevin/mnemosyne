@@ -126,7 +126,7 @@ def export_album(conn: sqlite3.Connection, album_id: int, out_path: str | Path) 
 
         rects = _area_rects(spread["layout"], sx, y_top, sw, sh)
         for slot in spread["layout"]["slots"]:
-            _draw_photo(c, slot["photo"]["path"], rects[slot["area"]])
+            _draw_photo(c, slot["photo"]["storage_key"], rects[slot["area"]])
 
         # Faint spine down the centre, mirroring the preview.
         c.saveState()

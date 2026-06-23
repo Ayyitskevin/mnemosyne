@@ -76,12 +76,17 @@ def test_delete_cascades_children_and_removes_upload_dir(conn, tmp_path, monkeyp
 
     before = _counts(conn, aid)
     assert before["photos"] == 3 and before["spreads"] >= 1 and before["placements"] >= 1
+    # Ingest copied the bytes into storage under the album's a<id>/ prefix, and the
+    # redundant staging folder was dropped the moment ingest finished.
+    stored = config.UPLOAD_DIR / f"a{aid}"
+    assert stored.is_dir() and len(list(stored.iterdir())) == 3
+    assert not udir.exists()
 
     assert pipeline.delete_album(conn, aid) is True
     after = _counts(conn, aid)
     assert after == {"albums": 0, "photos": 0, "spreads": 0, "placements": 0}
-    # The web upload folder (under UPLOAD_DIR) is cleaned off disk.
-    assert not udir.exists()
+    # Delete drops the album's stored bytes too (the storage analogue of the cascade).
+    assert not stored.exists()
 
 
 def test_delete_leaves_cli_gallery_on_disk(conn, tmp_path, monkeypatch, no_models):

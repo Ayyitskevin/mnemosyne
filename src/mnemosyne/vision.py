@@ -282,7 +282,8 @@ def look_at_album(conn: sqlite3.Connection, album_id: int) -> int:
     analyzed. Idempotent: photos that already have a scene are skipped, so a
     re-run only fills gaps (and a crash mid-way loses no completed work)."""
     rows = conn.execute(
-        "SELECT id, path FROM photos WHERE album_id = ? AND scene IS NULL ORDER BY id",
+        "SELECT id, storage_key FROM photos "
+        "WHERE album_id = ? AND scene IS NULL ORDER BY id",
         (album_id,),
     ).fetchall()
     store = storage.get_storage()
@@ -291,7 +292,7 @@ def look_at_album(conn: sqlite3.Connection, album_id: int) -> int:
         # Resolve the storage key to a real path for the life of the analyze call;
         # a remote driver downloads + cleans up around this block, the local one
         # just hands back the file.
-        with store.open_path(row["path"]) as image_path:
+        with store.open_path(row["storage_key"]) as image_path:
             result = analyze_one(str(image_path))
         conn.execute(
             "UPDATE photos SET scene = ?, hero_score = ? WHERE id = ?",

@@ -492,12 +492,12 @@ def photo_file(
 ):
     photo = albums.get_photo(conn, photo_id, user["id"])
     store = storage.get_storage()
-    if photo is None or not store.exists(photo["path"]):
+    if photo is None or not store.exists(photo["storage_key"]):
         raise HTTPException(status_code=404, detail="no such photo")
     # If the backend can hand the browser a direct URL (object store), redirect to
     # it so the bytes never proxy through this process; otherwise (local disk)
     # stream the file ourselves.
-    url = store.signed_url(photo["path"])
+    url = store.signed_url(photo["storage_key"])
     if url is not None:
         return RedirectResponse(url)
-    return FileResponse(store.local_path(photo["path"]))
+    return FileResponse(store.local_path(photo["storage_key"]))

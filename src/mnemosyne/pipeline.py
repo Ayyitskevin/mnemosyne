@@ -10,7 +10,7 @@ import shutil
 import sqlite3
 from pathlib import Path
 
-from mnemosyne import arrange, config, ingest, vision
+from mnemosyne import arrange, config, ingest, storage, vision
 
 
 def build_album(
@@ -61,6 +61,11 @@ def process_album(conn: sqlite3.Connection, album_id: int) -> dict:
     ).fetchone()["n"]
     if already == 0:
         ingest.ingest_photos(conn, album_id, row["source_dir"])
+        # Ingest has now copied each photo's bytes into storage under an `a<id>/`
+        # key, so the web upload's staging folder is a redundant second copy. Drop
+        # it to avoid silently doubling disk per album (R20). Containment-guarded,
+        # so a CLI album's own gallery (outside UPLOAD_DIR) is never touched.
+        _maybe_remove_upload_dir(row["source_dir"])
 
     looked = vision.look_at_album(conn, album_id)
     spreads = arrange.arrange_album(conn, album_id)
@@ -93,9 +98,10 @@ def delete_album(conn: sqlite3.Connection, album_id: int) -> bool:
     The schema has no ON DELETE CASCADE and foreign keys are enforced, so children
     are deleted in FK-safe order: placements first (they point at both spreads and
     photos), then spreads (their hero_photo_id points at photos, so they must go
-    before photos), then photos, then the album. The uploaded source folder is
-    removed too — but ONLY when it lives under UPLOAD_DIR, so deleting a CLI album
-    never touches the operator's original gallery on disk.
+    before photos), then photos, then the album. The album's stored bytes are
+    dropped too, via the storage seam's `a<id>/` key prefix; the source folder is
+    additionally removed ONLY when it lives under UPLOAD_DIR, so deleting a CLI
+    album never touches the operator's original gallery on disk.
     """
     row = conn.execute(
         "SELECT source_dir, status FROM albums WHERE id = ?", (album_id,)
@@ -113,6 +119,12 @@ def delete_album(conn: sqlite3.Connection, album_id: int) -> bool:
     conn.execute("DELETE FROM albums WHERE id = ?", (album_id,))
     conn.commit()
 
+    # Drop the album's stored bytes through the seam — `a<id>/` is this album's key
+    # prefix, so this clears local-disk folders today and bucket objects tomorrow.
+    # (No-op for legacy abspath-key albums, whose bytes live under source_dir.)
+    storage.get_storage().delete_prefix(f"a{album_id}/")
+    # Still clean the source folder: for a legacy album that IS where the bytes are,
+    # and for a freshly-deleted web album whose staging may linger if ingest never ran.
     _maybe_remove_upload_dir(row["source_dir"])
     return True
 
