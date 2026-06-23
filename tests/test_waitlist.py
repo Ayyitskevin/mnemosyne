@@ -97,10 +97,13 @@ def test_root_serves_the_public_landing_not_the_album_tool(client):
     assert "drafted albums" not in r.text
 
 
-def test_albums_index_moved_to_albums_path(client):
+def test_albums_index_requires_login(client):
+    # The album tool is no longer public: an unauthenticated hit bounces to the
+    # sign-in page instead of exposing anyone's galleries.
     r = client.get("/albums")
-    assert r.status_code == 200
-    assert "drafted albums" in r.text
+    assert r.status_code == 200  # followed the redirect
+    assert "/login" in str(r.url)
+    assert "sign in" in r.text.lower()
 
 
 def test_post_waitlist_stores_valid_email_and_confirms(client):

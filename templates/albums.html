@@ -19,12 +19,31 @@
     .meta { color: #9b9183; font-size: .9rem; margin-top: .2rem; }
     .empty { color: #9b9183; border: 1px dashed #2a2622; border-radius: 10px;
              padding: 2rem; text-align: center; }
+    .topbar { display: flex; justify-content: space-between; align-items: baseline;
+              margin-bottom: 2.5rem; }
+    .topbar .who { color: #9b9183; font-size: .85rem; }
+    .topbar form { display: inline; }
+    .topbar button { background: none; border: 0; color: #c9a86a; cursor: pointer;
+                     font-size: .85rem; padding: 0; margin-left: .8rem; }
+    .topbar button:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>mnemosyne</h1>
-    <p class="sub">drafted albums</p>
+    <div class="topbar">
+      <div>
+        <h1>mnemosyne</h1>
+        <p class="sub" style="margin:0">drafted albums</p>
+      </div>
+      {% if user %}
+        <div class="who">
+          {{ user.email }}
+          <form method="post" action="/logout">
+            <button type="submit">log out</button>
+          </form>
+        </div>
+      {% endif %}
+    </div>
     {% if albums %}
       {% for a in albums %}
         <a class="album" href="/albums/{{ a.id }}">
