@@ -50,6 +50,7 @@
     <a class="back" href="/">&larr; all albums</a>
     <h1>{{ album.name }}</h1>
     <a class="back" href="/albums/{{ album.id }}/pdf">download PDF &darr;</a>
+    <a class="back" href="/albums/{{ album.id }}/delete">&nbsp;·&nbsp; delete album</a>
 
     {% for spread in spreads %}
       <div class="spread">

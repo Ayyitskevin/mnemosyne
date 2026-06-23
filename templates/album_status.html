@@ -52,6 +52,7 @@
         <form method="post" action="/albums/{{ album.id }}/retry">
           <button type="submit">Try again</button>
         </form>
+        <a class="ghost" href="/albums/{{ album.id }}/delete">delete</a>
         <a class="ghost" href="/albums">← back to albums</a>
       </div>
     {% endif %}

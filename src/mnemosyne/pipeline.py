@@ -6,10 +6,11 @@ reads the result.
 """
 from __future__ import annotations
 
+import shutil
 import sqlite3
 from pathlib import Path
 
-from mnemosyne import arrange, ingest, vision
+from mnemosyne import arrange, config, ingest, vision
 
 
 def build_album(
@@ -77,3 +78,50 @@ def requeue_album(conn: sqlite3.Connection, album_id: int) -> bool:
     )
     conn.commit()
     return cur.rowcount > 0
+
+
+def delete_album(conn: sqlite3.Connection, album_id: int) -> bool:
+    """Permanently remove an album and everything that hangs off it. Returns True
+    if a row was actually deleted (False if the id was already gone).
+
+    The schema has no ON DELETE CASCADE and foreign keys are enforced, so children
+    are deleted in FK-safe order: placements first (they point at both spreads and
+    photos), then spreads (their hero_photo_id points at photos, so they must go
+    before photos), then photos, then the album. The uploaded source folder is
+    removed too — but ONLY when it lives under UPLOAD_DIR, so deleting a CLI album
+    never touches the operator's original gallery on disk.
+    """
+    row = conn.execute(
+        "SELECT source_dir FROM albums WHERE id = ?", (album_id,)
+    ).fetchone()
+    if row is None:
+        return False
+
+    conn.execute(
+        "DELETE FROM placements WHERE spread_id IN "
+        "(SELECT id FROM spreads WHERE album_id = ?)",
+        (album_id,),
+    )
+    conn.execute("DELETE FROM spreads WHERE album_id = ?", (album_id,))
+    conn.execute("DELETE FROM photos WHERE album_id = ?", (album_id,))
+    conn.execute("DELETE FROM albums WHERE id = ?", (album_id,))
+    conn.commit()
+
+    _maybe_remove_upload_dir(row["source_dir"])
+    return True
+
+
+def _maybe_remove_upload_dir(source_dir: str | Path) -> None:
+    """Delete an album's on-disk folder, but only if it sits inside UPLOAD_DIR.
+    Web uploads land in UPLOAD_DIR/u<owner>_<token>/ (ours to clean up); a CLI
+    album's source_dir is the operator's own gallery and must be left alone. The
+    resolved-path containment check also stops a doctored '../' source_dir from
+    escaping the upload root."""
+    root = config.UPLOAD_DIR.resolve()
+    try:
+        path = Path(source_dir).resolve()
+    except OSError:
+        return
+    if path == root or not path.is_relative_to(root):
+        return
+    shutil.rmtree(path, ignore_errors=True)

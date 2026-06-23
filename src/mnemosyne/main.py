@@ -350,6 +350,36 @@ def retry_album(
     return RedirectResponse(f"/albums/{album_id}", status_code=303)
 
 
+@app.get("/albums/{album_id}/delete", response_class=HTMLResponse)
+def delete_album_form(
+    album_id: int,
+    request: Request,
+    user: dict = Depends(require_user),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    """Confirm page for a destructive delete (owner only). A GET never mutates —
+    it just shows what's about to be removed and a POST button to go through with
+    it. 404s on a non-owned id like every other album route."""
+    _require_owned_album(conn, album_id, user)
+    album = albums.get_album(conn, album_id, user["id"])
+    return TEMPLATES.TemplateResponse(
+        request, "delete_confirm.html", {"album": album, "user": user}
+    )
+
+
+@app.post("/albums/{album_id}/delete")
+def delete_album(
+    album_id: int,
+    user: dict = Depends(require_user),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    """Permanently delete an album and its photos/spreads/files (owner only).
+    Irreversible, so it's reached only via POST from the confirm page."""
+    _require_owned_album(conn, album_id, user)
+    pipeline.delete_album(conn, album_id)
+    return RedirectResponse("/albums", status_code=303)
+
+
 def _require_owned_album(conn, album_id: int, user: dict) -> None:
     """Owner gate for the mutation/export routes. 404 (not 403) on a non-owned or
     missing album, so a stranger probing ids can't tell 'not yours' from 'doesn't
