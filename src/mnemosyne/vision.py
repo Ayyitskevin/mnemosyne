@@ -9,7 +9,8 @@ Runs entirely on mickey: the image bytes go to localhost Ollama and nowhere else
 so "we never train on / never upload your images" is true by construction.
 
 Phase 3: if config.ARGUS_URL is set, analyze_one delegates to argus service
-(using path visible to argus, or local_file upload in future). This provides
+(path on shared disk, or multipart upload when MNEMOSYNE_ARGUS_DELEGATION_MODE=upload).
+This provides
 the integration adapter path without loading heavy vision models directly in
 mnemosyne (keep ARGUS_VISION_BACKEND=mock on argus side).
 """
@@ -18,10 +19,12 @@ from __future__ import annotations
 import base64
 import io
 import json
+import mimetypes
 import sqlite3
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 import httpx2 as httpx
 from PIL import Image
@@ -115,8 +118,18 @@ def _generate(payload: dict) -> dict:
     raise RuntimeError(f"Ollama vision call failed after retries: {last}")
 
 
+def _argus_auth_headers() -> dict[str, str]:
+    token = getattr(config, "ARGUS_API_TOKEN", None)
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+def _argus_delegation_mode() -> str:
+    mode = (getattr(config, "ARGUS_DELEGATION_MODE", None) or "path").strip().lower()
+    return mode if mode in ("path", "upload") else "path"
+
+
 def _analyze_one_via_argus(image_path: str) -> dict:
-    """Delegate to argus /analyze (path assumed reachable by argus server).
+    """Delegate to argus /analyze via shared path or multipart upload.
     Maps argus result (shot_type + keywords + culling.hero_potential) to mnemosyne
     {scene, hero_score}. Safe when argus runs with VISION_BACKEND=mock.
     """
@@ -124,9 +137,20 @@ def _analyze_one_via_argus(image_path: str) -> dict:
     if not base:
         raise RuntimeError("ARGUS_URL not configured for argus delegation")
     url = f"{base}/analyze"
+    headers = _argus_auth_headers()
+    mode = _argus_delegation_mode()
     try:
         with httpx.Client(timeout=300) as c:
-            resp = c.post(url, data={"path": image_path})
+            if mode == "upload":
+                mime = mimetypes.guess_type(image_path)[0] or "image/jpeg"
+                with open(image_path, "rb") as fh:
+                    resp = c.post(
+                        url,
+                        files={"file": (Path(image_path).name, fh, mime)},
+                        headers=headers,
+                    )
+            else:
+                resp = c.post(url, data={"path": image_path}, headers=headers)
             resp.raise_for_status()
             data = resp.json()
     except Exception as e:

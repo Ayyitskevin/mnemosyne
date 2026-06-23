@@ -68,6 +68,10 @@ ARRANGE_MODEL = os.environ.get("MNEMOSYNE_ARRANGE_MODEL", "qwen3.6:35b")
 # This keeps mnemosyne from loading heavy vision models directly during integration dev.
 # Force argus side with ARGUS_VISION_BACKEND=mock.
 ARGUS_URL = os.environ.get("ARGUS_URL") or os.environ.get("MNEMOSYNE_ARGUS_URL")
+ARGUS_API_TOKEN = os.environ.get("ARGUS_API_TOKEN") or os.environ.get("MNEMOSYNE_ARGUS_API_TOKEN")
+# path = argus reads image_path on its host (homelab shared disk).
+# upload = multipart file POST (decoupled hosts / Argus SaaS upload-only).
+ARGUS_DELEGATION_MODE = os.environ.get("MNEMOSYNE_ARGUS_DELEGATION_MODE", "path").strip().lower()
 
 # Phase 2 runtime vision vendor: xAI / Grok (OpenAI-compatible API). This is the
 # SaaS production lane — a metered API bill, separate from any coding subscription.
