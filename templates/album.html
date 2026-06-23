@@ -12,16 +12,20 @@
     a.back { color: #9b9183; text-decoration: none; font-size: .9rem; }
     a.back:hover { color: #e8e2d8; }
     h1 { font-weight: 300; letter-spacing: .04em; margin: .4rem 0 2rem; }
-    .spread { margin-bottom: 1.6rem; }
+    .spread { margin-bottom: 1.8rem; }
     .label { color: #9b9183; font-size: .8rem; letter-spacing: .08em;
              text-transform: uppercase; margin-bottom: .5rem; }
-    /* A spread is two pages: a flex row of photos. The hero gets more width. */
-    .pages { display: flex; gap: 6px; height: 360px;
+    /* A spread is two facing pages drawn as one CSS grid; the per-spread track
+       sizing + grid-areas come from the layout engine, with a faint centre line
+       standing in for the book's spine. */
+    .pages { display: grid; gap: 5px; aspect-ratio: 16 / 10;
              background: #000; border: 1px solid #221f1b; border-radius: 6px;
-             overflow: hidden; }
-    .pages img { display: block; height: 100%; width: 100%; object-fit: cover;
-                 flex: 1 1 0; min-width: 0; }
-    .pages img.hero { flex: 2.2 1 0; }
+             overflow: hidden; position: relative; }
+    .pages img { display: block; width: 100%; height: 100%; object-fit: cover;
+                 min-width: 0; min-height: 0; }
+    .pages::after { content: ""; position: absolute; top: 0; bottom: 0; left: 50%;
+                    width: 1px; background: rgba(255, 255, 255, .07);
+                    pointer-events: none; }
     .caption { color: #6f675b; font-size: .76rem; margin-top: .35rem; }
   </style>
 </head>
@@ -33,12 +37,14 @@
     {% for spread in spreads %}
       <div class="spread">
         <div class="label">Spread {{ spread.position }}</div>
-        <div class="pages">
-          {% for p in spread.photos %}
-            <img class="{{ 'hero' if p.is_hero else '' }}"
-                 src="/photo/{{ p.id }}"
-                 alt="{{ p.scene }}"
-                 title="{{ p.scene }} (hero {{ '%.2f'|format(p.hero_score or 0) }})">
+        <div class="pages" style="grid-template-columns: {{ spread.layout.cols }};
+             grid-template-rows: {{ spread.layout.rows }};
+             grid-template-areas: {{ spread.layout.areas | safe }};">
+          {% for slot in spread.layout.slots %}
+            <img style="grid-area: {{ slot.area }};"
+                 src="/photo/{{ slot.photo.id }}"
+                 alt="{{ slot.photo.scene }}"
+                 title="{{ slot.photo.scene }} (hero {{ '%.2f'|format(slot.photo.hero_score or 0) }})">
           {% endfor %}
         </div>
         <div class="caption">

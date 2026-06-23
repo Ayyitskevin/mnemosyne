@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import sqlite3
 
+from mnemosyne import layout
+
 
 def list_albums(conn: sqlite3.Connection) -> list[dict]:
     rows = conn.execute(
@@ -54,6 +56,7 @@ def album_for_render(conn: sqlite3.Connection, album_id: int) -> dict | None:
             )
             photos.append(photo)
         spread["photos"] = photos
+        spread["layout"] = layout.plan_spread(photos, spread["hero_photo_id"])
         spreads.append(spread)
 
     return {"album": album, "spreads": spreads}
