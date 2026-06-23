@@ -129,6 +129,12 @@ GROK_ARRANGE_MODEL = os.environ.get("MNEMOSYNE_GROK_ARRANGE_MODEL", "grok-4.20-n
 GROK_PRICE_PROMPT_PER_M = float(os.environ.get("MNEMOSYNE_GROK_PRICE_PROMPT_PER_M") or 0)
 GROK_PRICE_COMPLETION_PER_M = float(os.environ.get("MNEMOSYNE_GROK_PRICE_COMPLETION_PER_M") or 0)
 
+# How long a freshly minted album share link stays live, in days. Bounds the
+# exposure of a forwarded/leaked link without the owner having to remember to
+# revoke; the owner can still revoke early. Configurable so bumping the window is a
+# .env change, not a migration.
+SHARE_LINK_TTL_DAYS = int(os.environ.get("MNEMOSYNE_SHARE_LINK_TTL_DAYS") or 30)
+
 # Where per-photo cloud-vision cost lines (tokens + latency) are appended, so
 # $/album is reconstructable from call one. Local + gitignored by default; high
 # volume, so deliberately NOT the shared fleet routing log.

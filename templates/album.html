@@ -43,6 +43,20 @@
                         cursor: pointer; font-size: .72rem; line-height: 1; padding: 0 .2rem; }
     .photo-ctl button:hover { color: #e8e2d8; border-color: #4a443a; }
     .photo-ctl .star { color: #d8b25a; }
+    .share { margin: 1.4rem 0 2rem; padding: .9rem 1rem; background: #16130f;
+             border: 1px solid #221f1b; border-radius: 6px; }
+    .share form { display: inline; margin: 0; }
+    .share button { background: #1b1814; color: #d8b25a; border: 1px solid #2a2620;
+                    border-radius: 4px; padding: .35rem .7rem; cursor: pointer;
+                    font-size: .82rem; }
+    .share button:hover { border-color: #4a443a; }
+    .share-live { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
+    .share-url { flex: 1 1 18rem; min-width: 0; background: #0e0d0c; color: #e8e2d8;
+                 border: 1px solid #2a2620; border-radius: 4px; padding: .35rem .5rem;
+                 font: .8rem/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .share-exp { color: #9b9183; font-size: .78rem; }
+    .share-hint { color: #6f675b; font-size: .78rem; margin-top: .5rem; }
+    .share button.revoke { color: #c98b6b; }
   </style>
 </head>
 <body>
@@ -51,6 +65,29 @@
     <h1>{{ album.name }}</h1>
     <a class="back" href="/albums/{{ album.id }}/pdf">download PDF &darr;</a>
     <a class="back" href="/albums/{{ album.id }}/delete">&nbsp;·&nbsp; delete album</a>
+
+    <div class="share">
+      {% if share_url %}
+        <div class="share-live">
+          <span class="share-exp">share link</span>
+          <input class="share-url" type="text" readonly value="{{ share_url }}"
+                 onclick="this.select()">
+          <span class="share-exp">expires {{ album.share_expires_at }} UTC</span>
+          <form method="post" action="/albums/{{ album.id }}/share">
+            <button type="submit" title="generate a fresh link; the current one stops working">new link</button>
+          </form>
+          <form method="post" action="/albums/{{ album.id }}/share/revoke">
+            <button type="submit" class="revoke" title="disable this link now">revoke</button>
+          </form>
+        </div>
+        <div class="share-hint">Anyone with this link can view the album and download the PDF until it expires or you revoke it.</div>
+      {% else %}
+        <form method="post" action="/albums/{{ album.id }}/share">
+          <button type="submit">create share link</button>
+        </form>
+        <span class="share-hint">&nbsp; A private, time-limited link for a client — no account needed to view.</span>
+      {% endif %}
+    </div>
 
     {% for spread in spreads %}
       <div class="spread">

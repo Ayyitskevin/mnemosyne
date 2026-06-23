@@ -42,6 +42,7 @@ from mnemosyne import (
     export,
     ingest,
     pipeline,
+    share,
     storage,
     waitlist,
 )
@@ -354,10 +355,16 @@ def show_album(
             request, "album_status.html", {"album": album, "user": user}
         )
     data = albums.album_for_render(conn, album_id, user["id"])
+    # Hand the template a ready-to-copy absolute link when one is live, so the owner
+    # can paste it to a client without us hardcoding the host.
+    share_url = None
+    if data["album"].get("share_token"):
+        share_url = f"{str(request.base_url).rstrip('/')}/share/{data['album']['share_token']}"
     return TEMPLATES.TemplateResponse(
         request,
         "album.html",
-        {"album": data["album"], "spreads": data["spreads"], "user": user},
+        {"album": data["album"], "spreads": data["spreads"], "user": user,
+         "share_url": share_url},
     )
 
 
@@ -484,6 +491,19 @@ def album_pdf(
     )
 
 
+def _serve_key(key: str):
+    """Hand the browser the bytes behind a storage key. If the backend can mint a
+    direct URL (object store), redirect so the bytes never proxy through this
+    process; otherwise (local disk) stream the file. 404s a key with no object."""
+    store = storage.get_storage()
+    if not store.exists(key):
+        raise HTTPException(status_code=404, detail="no such photo")
+    url = store.signed_url(key)
+    if url is not None:
+        return RedirectResponse(url)
+    return FileResponse(store.local_path(key))
+
+
 @app.get("/photo/{photo_id}")
 def photo_file(
     photo_id: int,
@@ -491,13 +511,93 @@ def photo_file(
     conn: sqlite3.Connection = Depends(get_conn),
 ):
     photo = albums.get_photo(conn, photo_id, user["id"])
-    store = storage.get_storage()
-    if photo is None or not store.exists(photo["storage_key"]):
+    if photo is None:
         raise HTTPException(status_code=404, detail="no such photo")
-    # If the backend can hand the browser a direct URL (object store), redirect to
-    # it so the bytes never proxy through this process; otherwise (local disk)
-    # stream the file ourselves.
-    url = store.signed_url(photo["storage_key"])
-    if url is not None:
-        return RedirectResponse(url)
-    return FileResponse(store.local_path(photo["storage_key"]))
+    return _serve_key(photo["storage_key"])
+
+
+# --- share links: an owner hands a finished album to someone with no account -----
+
+
+@app.post("/albums/{album_id}/share")
+def create_share(
+    album_id: int,
+    user: dict = Depends(require_user),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    """Mint (or rotate) a time-limited public link for an owned album. Re-minting
+    rotates the token, invalidating any link already shared — the 'start over'
+    affordance. Owner-gated like every other album write."""
+    _require_owned_album(conn, album_id, user)
+    share.create_link(conn, album_id, user["id"])
+    return RedirectResponse(f"/albums/{album_id}", status_code=303)
+
+
+@app.post("/albums/{album_id}/share/revoke")
+def revoke_share(
+    album_id: int,
+    user: dict = Depends(require_user),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    """Kill an owned album's share link immediately, before its expiry."""
+    _require_owned_album(conn, album_id, user)
+    share.revoke_link(conn, album_id, user["id"])
+    return RedirectResponse(f"/albums/{album_id}", status_code=303)
+
+
+@app.get("/share/{token}", response_class=HTMLResponse)
+def shared_album(
+    token: str,
+    request: Request,
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    """Public read-only view of a shared album — no session required, the token is
+    the authorization. 404s an unknown/expired/revoked token (and a not-yet-ready
+    album) without revealing whether the token ever existed. No edit or delete
+    controls render here; this is the client's window onto the finished book."""
+    album_id = share.resolve_token(conn, token)
+    if album_id is None:
+        raise HTTPException(status_code=404, detail="link not found")
+    data = albums.album_for_render(conn, album_id)
+    return TEMPLATES.TemplateResponse(
+        request,
+        "share.html",
+        {"album": data["album"], "spreads": data["spreads"], "token": token},
+    )
+
+
+@app.get("/share/{token}/photo/{photo_id}")
+def shared_photo(
+    token: str,
+    photo_id: int,
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    """Image bytes for the shared view, scoped to the token's own album so a valid
+    token can't be paired with a guessed photo_id from another gallery."""
+    key = share.shared_photo_key(conn, token, photo_id)
+    if key is None:
+        raise HTTPException(status_code=404, detail="no such photo")
+    return _serve_key(key)
+
+
+@app.get("/share/{token}/pdf")
+def shared_pdf(
+    token: str,
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    """The same print-ready PDF the owner gets, downloadable by a link holder."""
+    album_id = share.resolve_token(conn, token)
+    if album_id is None:
+        raise HTTPException(status_code=404, detail="link not found")
+    fd, tmp = tempfile.mkstemp(suffix=".pdf")
+    os.close(fd)
+    try:
+        export.export_album(conn, album_id, tmp)
+        pdf = Path(tmp).read_bytes()
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="album-{album_id}.pdf"'},
+    )
