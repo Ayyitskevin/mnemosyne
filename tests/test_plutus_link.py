@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from mnemosyne import arrange, auth, config, db, pipeline, plutus_link, share, vision
+from mnemosyne import arrange, auth, config, db, pipeline, plutus_api, plutus_link, share, vision
 from mnemosyne.main import app, get_conn
 
 
@@ -127,6 +127,35 @@ def test_share_view_shows_order_prints_cta(web, tmp_path):
     assert r.status_code == 200
     assert "Order prints" in r.text
     assert offer in r.text
+
+
+def test_plutus_generate_route(web, tmp_path, monkeypatch):
+    uid = _signup(web)
+    aid = _build_ready(web, uid, tmp_path)
+    offer = "https://plutus.example.com/store/demo/offer/tok-gen"
+
+    monkeypatch.setattr(
+        plutus_api,
+        "create_offer_url",
+        lambda **kw: offer if kw.get("run_id") == 99 else (_ for _ in ()).throw(
+            AssertionError("wrong run_id")
+        ),
+    )
+
+    r = web.post(
+        f"/albums/{aid}/plutus-generate",
+        data={"plutus_run_id": "99"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert "plutus_saved=1" in r.headers["location"]
+
+    c = db.connect(web._db_path)
+    row = c.execute(
+        "SELECT plutus_offer_url FROM albums WHERE id = ?", (aid,)
+    ).fetchone()
+    c.close()
+    assert row["plutus_offer_url"] == offer
 
 
 def test_album_post_plutus_link(web, tmp_path):

@@ -126,6 +126,8 @@ Think of it as five workstreams stacked so each one stands on the one below it.
 - **Plutus auto-link** — `POST /albums/{id}/plutus-generate` via Plutus API (`MNEMOSYNE_PLUTUS_API_TOKEN`)
 - **MinIO wire** — `scripts/wire-minio.sh` for local S3-compatible storage dogfood
 - **Dogfood kit** — `scripts/dogfood-invite.sh` (tailnet invite + signup URLs)
+- **Plutus prod dogfood** — `scripts/dogfood-plutus-prod.sh`, `scripts/dogfood-plutus-link.sh`
+- **Suite loop** (cross-repo) — plutus `scripts/dogfood-suite-loop.sh` (Mise → Argus → offer → share CTA)
 - **Fly deploy** — `scripts/deploy-fly.sh` (after `flyctl auth login` + real R2 creds)
 
 **Dogfood / deploy gates (operator):**

@@ -51,6 +51,7 @@ Before they start:
   2. Ask them to use a real culled gallery (JPEGs, one album).
   3. Pick a gallery theme on upload (food / wedding / general / event).
   4. Note: billing is off — no payment step during dogfood.
+  5. Optional print cross-sell: bash scripts/dogfood-plutus-prod.sh (after suite loop).
 
 What to watch:
   - Upload friction (size, wait time)
