@@ -95,6 +95,24 @@ def test_authenticate_is_ambiguous_about_missing_vs_wrong(conn):
     assert auth.authenticate(conn, "nobody@example.com", "pw12345") is None
 
 
+def test_authenticate_hashes_even_when_email_missing(conn, monkeypatch):
+    """The ambiguity above must hold in TIMING too: a login for an unknown email
+    still runs the (expensive) password verification against a decoy hash. If it
+    short-circuited, the latency gap would itself leak which emails are registered.
+    """
+    calls = []
+    real_verify = auth.verify_password
+
+    def spy(password, stored):
+        calls.append(stored)
+        return real_verify(password, stored)
+
+    monkeypatch.setattr(auth, "verify_password", spy)
+    assert auth.authenticate(conn, "nobody@example.com", "pw12345") is None
+    # verify ran exactly once, against the decoy — not skipped for the missing user.
+    assert calls == [auth._DECOY_HASH]
+
+
 def test_duplicate_email_rejected(conn):
     auth.create_user(conn, "a@example.com", "pw12345")
     with pytest.raises(ValueError):

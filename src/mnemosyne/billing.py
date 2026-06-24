@@ -129,6 +129,12 @@ def create_portal_session(conn: sqlite3.Connection, user: dict) -> dict:
     return {"portal_url": portal["url"]}
 
 
+# Stripe's own libraries reject a signed payload whose timestamp is older than
+# this, so a valid header captured off the wire can't be replayed later. Matches
+# Stripe's default tolerance.
+WEBHOOK_TOLERANCE_SECONDS = 300
+
+
 def verify_webhook_signature(payload: bytes, sig_header: str | None) -> bool:
     secret = config.STRIPE_WEBHOOK_SECRET
     if not secret or not sig_header:
@@ -140,6 +146,15 @@ def verify_webhook_signature(payload: bytes, sig_header: str | None) -> bool:
     timestamp = parts.get("t")
     signature = parts.get("v1")
     if not timestamp or not signature:
+        return False
+    # Reject a stale (or future-dated) timestamp before the HMAC even matters: a
+    # signature alone proves authenticity, not freshness, so without this an
+    # attacker who captured one valid webhook could replay it indefinitely.
+    try:
+        age = abs(time.time() - int(timestamp))
+    except ValueError:
+        return False
+    if age > WEBHOOK_TOLERANCE_SECONDS:
         return False
     signed = f"{timestamp}.{payload.decode()}".encode()
     expected = hmac.new(secret.encode(), signed, hashlib.sha256).hexdigest()

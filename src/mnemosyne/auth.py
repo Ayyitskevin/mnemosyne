@@ -148,13 +148,22 @@ def delete_user(conn: sqlite3.Connection, user_id: int, delete_albums_fn) -> boo
     return cur.rowcount == 1
 
 
+# A real hash of a throwaway secret, verified against when no user matches so the
+# unknown-email branch pays the same pbkdf2 cost as a wrong-password one. The
+# password it represents is never knowable, so this can never accidentally pass.
+_DECOY_HASH = hash_password(secrets.token_hex(16))
+
+
 def authenticate(conn: sqlite3.Connection, email: str, password: str) -> dict | None:
     """Return the user row if email+password check out, else None.
 
-    Deliberately one outcome for "no such email" and "wrong password" — telling
-    them apart would let someone enumerate which emails have accounts.
+    Deliberately one outcome for "no such email" and "wrong password" — and one
+    timing profile too: a missing user still runs verify_password against a decoy
+    hash, so response latency can't tell an attacker which emails have accounts.
     """
     user = get_user_by_email(conn, email)
-    if user is None or not verify_password(password, user["password_hash"]):
+    stored = user["password_hash"] if user is not None else _DECOY_HASH
+    ok = verify_password(password, stored)
+    if user is None or not ok:
         return None
     return user
