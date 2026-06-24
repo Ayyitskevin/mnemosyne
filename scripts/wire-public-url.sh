@@ -7,7 +7,7 @@ ENV_FILE="${MNEMOSYNE_ENV_FILE:-$ROOT/.env}"
 PORT="${MNEMOSYNE_PORT:-8000}"
 PUBLIC_URL="${MNEMOSYNE_PUBLIC_URL:-}"
 TAILSCALE_SERVE="${MNEMOSYNE_TAILSCALE_SERVE:-}"
-SYSTEMD_UNIT="${MNEMOSYNE_SYSTEMD_UNIT:-}"
+SYSTEMD_UNIT="${MNEMOSYNE_SYSTEMD_UNIT:-mnemosyne.service}"
 
 if [[ "${1:-}" == --tailscale ]]; then
   TAILSCALE_SERVE=1
@@ -71,7 +71,7 @@ env_path.write_text("\\n".join(out).rstrip() + "\\n")
 print("wrote", env_path)
 PY
 
-if [[ -n "$SYSTEMD_UNIT" ]]; then
+if systemctl --user is-active "$SYSTEMD_UNIT" >/dev/null 2>&1; then
   echo "==> Restart $SYSTEMD_UNIT"
   systemctl --user restart "$SYSTEMD_UNIT"
   sleep 2

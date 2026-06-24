@@ -110,6 +110,16 @@ Think of it as five workstreams stacked so each one stands on the one below it.
 - **Gallery themes** — food / wedding / general / event steer vision + arrange prompts per album
 - **Plutus cross-sell** — optional `plutus_offer_url` on an album; share view shows an "Order prints" CTA when set (`MNEMOSYNE_PLUTUS_URL` for path-only links)
 
+**Prod bootstrap (in-repo):**
+- `.env.example` — SaaS env template (secrets off-repo)
+- `scripts/wire-r2.sh` — flip `MNEMOSYNE_STORAGE_BACKEND=r2` + verify bucket
+- `scripts/wire-public-url.sh` — `MNEMOSYNE_PUBLIC_URL` for share links
+- `scripts/install-service.sh` + `ops/mnemosyne-user.service` — user systemd unit
+- `scripts/validate-env.sh` — fail fast on placeholder/missing prod secrets
+- `scripts/run-cogs-benchmark.sh` — one gallery through grok + `mnemosyne cost` report
+- `scripts/bootstrap-prod.sh` — validate → optional R2/URL → install service
+- `/healthz` storage probe (R2 credentials or local upload dir writable)
+
 ---
 
 ## The data we add (kept as tiny as we can)

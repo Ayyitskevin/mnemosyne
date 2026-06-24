@@ -17,6 +17,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
+r2 = ["boto3"]
+prod = ["boto3"]
 
 [build-system]
 requires = ["setuptools>=68"]

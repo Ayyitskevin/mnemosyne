@@ -138,5 +138,8 @@ def test_healthz_reports_backends(web):
     assert r.status_code == 200
     body = r.json()
     assert body["ok"] is True
+    assert body["status"] == "ok"
     assert "vision" in body["backends"]
     assert "arrange" in body["backends"]
+    assert body["storage"]["backend"] == "local"
+    assert body["storage"]["configured"] is True

@@ -1,0 +1,16 @@
+[Unit]
+Description=mnemosyne album designer
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/ai-workspace/mnemosyne
+EnvironmentFile=%h/ai-workspace/mnemosyne/.env
+ExecStart=%h/ai-workspace/mnemosyne/scripts/start-mnemosyne.sh
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=default.target

@@ -24,3 +24,23 @@ def test_grok_backends_when_configured(monkeypatch):
     assert status["vision"] == "grok"
     assert status["arrange"] == "grok"
     assert status["grok_priced"] is True
+
+
+def test_storage_status_local_ok(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "STORAGE_BACKEND", "local")
+    monkeypatch.setattr(config, "UPLOAD_DIR", tmp_path / "uploads")
+    from mnemosyne import storage
+
+    storage._instance = None
+    status = runtime.storage_status()
+    assert status["backend"] == "local"
+    assert status["configured"] is True
+    assert status["status"] == "ok"
+
+
+def test_health_summary_errors_when_grok_without_key(monkeypatch):
+    monkeypatch.setattr(config, "VISION_BACKEND", "grok")
+    monkeypatch.setattr(config, "ARRANGE_BACKEND", None)
+    monkeypatch.setattr(config, "XAI_API_KEY", None)
+    summary = runtime.health_summary()
+    assert summary["status"] == "error"

@@ -136,10 +136,13 @@ async def _login_redirect(request: Request, exc: StarletteHTTPException):
 @app.get("/healthz")
 def healthz(request: Request) -> dict:
     worker = getattr(request.app.state, "worker", None)
+    summary = runtime.health_summary()
     return {
-        "ok": True,
+        "ok": summary["status"] == "ok",
+        "status": summary["status"],
         "worker": worker is not None,
-        "backends": runtime.backend_status(),
+        "backends": summary["backends"],
+        "storage": summary["storage"],
     }
 
 
