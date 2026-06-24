@@ -46,7 +46,7 @@ def test_create_offer_url_calls_plutus(monkeypatch):
     monkeypatch.setattr(plutus_api.httpx, "Client", _FakeClient)
     url = plutus_api.create_offer_url(run_id=42, label="My album")
     assert url == "https://plutus.example.com/store/demo/offer/tok123"
-    assert _FakeClient.captured["url"].endswith("/storefront/share-links")
+    assert _FakeClient.captured["url"].endswith("/integrations/offer")
     assert _FakeClient.captured["data"]["run_id"] == "42"
     assert _FakeClient.captured["data"]["tenant_id"] == "flow-studio"
 

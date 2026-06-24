@@ -15,7 +15,7 @@ def configured() -> bool:
 
 
 def create_offer_url(*, run_id: int, label: str | None = None) -> str:
-    """Call Plutus POST /storefront/share-links and return a normalized offer URL."""
+    """Call Plutus POST /integrations/offer and return a normalized offer URL."""
     base = (config.PLUTUS_URL or "").rstrip("/")
     token = config.PLUTUS_API_TOKEN
     tenant_id = config.PLUTUS_TENANT_ID
@@ -29,7 +29,7 @@ def create_offer_url(*, run_id: int, label: str | None = None) -> str:
     if label:
         data["label"] = label
 
-    url = f"{base}/storefront/share-links"
+    url = f"{base}/integrations/offer"
     try:
         with httpx.Client(timeout=60.0) as client:
             resp = client.post(
