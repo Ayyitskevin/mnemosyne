@@ -11,17 +11,21 @@ class PlutusApiError(Exception):
 
 
 def configured() -> bool:
-    return bool(config.PLUTUS_URL and config.PLUTUS_API_TOKEN)
+    return bool(config.PLUTUS_URL and config.PLUTUS_API_TOKEN and config.PLUTUS_TENANT_ID)
 
 
 def create_offer_url(*, run_id: int, label: str | None = None) -> str:
     """Call Plutus POST /storefront/share-links and return a normalized offer URL."""
     base = (config.PLUTUS_URL or "").rstrip("/")
     token = config.PLUTUS_API_TOKEN
-    if not base or not token:
-        raise PlutusApiError("MNEMOSYNE_PLUTUS_URL and MNEMOSYNE_PLUTUS_API_TOKEN required")
+    tenant_id = config.PLUTUS_TENANT_ID
+    if not base or not token or not tenant_id:
+        raise PlutusApiError(
+            "MNEMOSYNE_PLUTUS_URL, MNEMOSYNE_PLUTUS_API_TOKEN, and "
+            "MNEMOSYNE_PLUTUS_TENANT_ID required"
+        )
 
-    data = {"run_id": str(run_id)}
+    data = {"run_id": str(run_id), "tenant_id": tenant_id}
     if label:
         data["label"] = label
 

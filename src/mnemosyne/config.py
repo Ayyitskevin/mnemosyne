@@ -24,6 +24,8 @@ PUBLIC_URL = os.environ.get("MNEMOSYNE_PUBLIC_URL") or None
 # Albums can store a full offer URL or a /store/{slug}/offer/{token} path.
 PLUTUS_URL = os.environ.get("MNEMOSYNE_PLUTUS_URL") or None
 PLUTUS_API_TOKEN = os.environ.get("MNEMOSYNE_PLUTUS_API_TOKEN") or None
+# SaaS tenant id when minting offers via admin API token (e.g. flow-studio).
+PLUTUS_TENANT_ID = os.environ.get("MNEMOSYNE_PLUTUS_TENANT_ID") or None
 
 # Stripe billing — off until STRIPE_ENABLED=true and keys are set (commitment-class).
 STRIPE_ENABLED = os.environ.get("MNEMOSYNE_STRIPE_ENABLED", "").strip().lower() in {
