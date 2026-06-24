@@ -29,9 +29,9 @@ def conn(tmp_path):
 def no_models(monkeypatch):
     """Run the pipeline offline so delete has real photos/spreads to cascade."""
     monkeypatch.setattr(
-        vision, "analyze_one", lambda path: {"scene": "food", "hero_score": 0.5}
+        vision, "analyze_one", lambda path, **kw: {"scene": "food", "hero_score": 0.5}
     )
-    monkeypatch.setattr(arrange, "_ask_model", lambda photos: (None, None))
+    monkeypatch.setattr(arrange, "_ask_model", lambda photos, **kw: (None, None))
 
 
 def _user(conn, email="a@example.com") -> int:

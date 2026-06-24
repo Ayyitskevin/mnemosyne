@@ -76,15 +76,36 @@
     .notice { color: #8fd4a0; font-size: .85rem; margin: .5rem 0 0; }
     .notice.err { color: #d99; }
     .album-meta { color: #9b9183; font-size: .85rem; margin: .25rem 0 .75rem; }
+    .theme-tag { display: inline-block; font-size: .72rem; letter-spacing: .04em;
+                 text-transform: uppercase; padding: .1rem .4rem; border-radius: 4px;
+                 background: #1b1814; color: #9b9183; margin-left: .35rem; vertical-align: middle; }
+    .plutus { margin: 0 0 1.4rem; padding: .9rem 1rem; background: #16130f;
+              border: 1px solid #221f1b; border-radius: 6px; }
+    .plutus h3 { margin: 0 0 .45rem; font-size: .82rem; font-weight: 600;
+                 letter-spacing: .06em; text-transform: uppercase; color: #9b9183; }
+    .plutus input[type=text] { width: 100%; box-sizing: border-box; background: #0e0d0c;
+                                color: #e8e2d8; border: 1px solid #2a2620; border-radius: 4px;
+                                padding: .45rem .55rem; font: .8rem/1.3 ui-monospace, monospace;
+                                margin: .35rem 0 .55rem; }
+    .plutus button { background: #1b1814; color: #d8b25a; border: 1px solid #2a2620;
+                     border-radius: 4px; padding: .35rem .7rem; cursor: pointer;
+                     font-size: .82rem; }
+    .plutus button:hover { border-color: #4a443a; }
+    .plutus .hint { color: #6f675b; font-size: .78rem; margin-top: .45rem; }
+    .plutus .current { color: #cfc6b8; font-size: .82rem; word-break: break-all; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <a class="back" href="/albums">&larr; all albums</a>
     <h1>{{ album.name }}</h1>
-    <p class="album-meta">{{ photo_count }} photos · {{ spread_count }} spreads{% if album.created_at %} · {{ album.created_at }}{% endif %}</p>
+    <p class="album-meta">{{ photo_count }} photos · {{ spread_count }} spreads
+      {% if album.gallery_theme %}<span class="theme-tag">{{ album.gallery_theme }}</span>{% endif %}
+      {% if album.created_at %} · {{ album.created_at }}{% endif %}</p>
     {% if regenerated %}<p class="notice">Layout regenerated — vision scores unchanged, spreads replaced.</p>{% endif %}
     {% if regenerate_error %}<p class="notice err">{{ regenerate_error|replace('+', ' ') }}</p>{% endif %}
+    {% if plutus_saved %}<p class="notice">Print offer link saved — clients will see it on the share view.</p>{% endif %}
+    {% if plutus_error %}<p class="notice err">{{ plutus_error|replace('+', ' ') }}</p>{% endif %}
     <div class="toolbar">
       <a class="back" href="/albums/{{ album.id }}/pdf">download PDF &darr;</a>
       <form method="post" action="/albums/{{ album.id }}/regenerate" style="margin:0"
@@ -134,6 +155,23 @@
         </form>
         <span class="share-hint">&nbsp; A private, time-limited link for a client — no account needed to view.</span>
       {% endif %}
+    </div>
+
+    <div class="plutus">
+      <h3>Print cross-sell</h3>
+      {% if album.plutus_offer_url %}
+        <div class="current">Offer link: <a href="{{ album.plutus_offer_url }}" style="color:#d8b25a">{{ album.plutus_offer_url }}</a></div>
+      {% endif %}
+      <form method="post" action="/albums/{{ album.id }}/plutus-link">
+        <input type="text" name="plutus_offer_url"
+               value="{{ album.plutus_offer_url or '' }}"
+               placeholder="https://…/store/{slug}/offer/{token} or /store/…/offer/…">
+        <button type="submit">save offer link</button>
+      </form>
+      <div class="hint">
+        Paste a Plutus publish URL so share-view clients can order prints.
+        {% if not plutus_configured %}Set <code>MNEMOSYNE_PLUTUS_URL</code> to accept path-only links.{% endif %}
+      </div>
     </div>
 
     {% for spread in spreads %}

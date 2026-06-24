@@ -23,6 +23,8 @@
     .status-ready { background: #1a2a1f; color: #8fd4a0; }
     .status-pending, .status-processing { background: #2a2418; color: #d8b25a; }
     .status-failed { background: #2a1814; color: #d99; }
+    .theme { display: inline-block; font-size: .68rem; letter-spacing: .04em;
+             text-transform: uppercase; color: #6f675b; margin-left: .35rem; }
     .cogs { color: #6f675b; font-size: .82rem; margin-top: .15rem; }
     .empty { color: #9b9183; border: 1px dashed #2a2622; border-radius: 10px;
              padding: 2rem; text-align: center; }
@@ -68,7 +70,7 @@
       <strong>Runtime</strong> —
       vision: {{ runtime.vision }} ({{ runtime.vision_model }}) ·
       arrange: {{ runtime.arrange }} ({{ runtime.arrange_model }}) ·
-      storage: {{ runtime.storage }}{% if runtime.public_url %} · public URL set{% endif %}{% if runtime.grok_priced %} · COGS priced{% endif %}
+      storage: {{ runtime.storage }}{% if runtime.public_url %} · public URL set{% endif %}{% if runtime.plutus_url %} · Plutus linked{% endif %}{% if runtime.grok_priced %} · COGS priced{% endif %}
     </p>
     {% endif %}
     <a class="newbtn" href="/albums/new">+ New album</a>
@@ -79,7 +81,9 @@
             {{ a.name }}
             <span class="status status-{{ a.status }}">{{ a.status }}</span>
           </div>
-          <div class="meta">{{ a.photo_count }} photos · {{ a.spread_count }} spreads · {{ a.created_at }}</div>
+          <div class="meta">{{ a.photo_count }} photos · {{ a.spread_count }} spreads
+            {% if a.gallery_theme %}<span class="theme">{{ a.gallery_theme }}</span>{% endif %}
+            · {{ a.created_at }}</div>
           {% if a.cogs and a.cogs.calls %}
           <div class="cogs">cloud COGS: {{ a.cogs.calls }} call(s) · {{ a.cogs.total_tokens }} tok{% if a.cogs.cost_usd is not none %} · ${{ "%.4f"|format(a.cogs.cost_usd) }}{% endif %}</div>
           {% endif %}

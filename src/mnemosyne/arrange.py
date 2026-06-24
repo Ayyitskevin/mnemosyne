@@ -18,22 +18,7 @@ import urllib.request
 import httpx2 as httpx
 
 from mnemosyne import config, usage
-
-_SYSTEM = (
-    "You are an album designer laying out a photo album from a restaurant photo "
-    "shoot. You will get a list of photos as (id, scene, hero_score, orientation). "
-    "Design the album as an ordered list of two-page SPREADS that tells the story "
-    "of the shoot: arrival/exterior -> ambiance -> details & drinks -> hero dishes "
-    "-> action -> dessert -> closing. Rules: each spread holds 1 to 4 photos, and "
-    "MOST spreads should hold 3 or 4 — a printed album breathes through full, varied "
-    "spreads, not a slideshow of half-empty pages. Reserve a 1-photo spread ONLY for "
-    "a single standout hero (the very highest hero_score), and never use more than "
-    "one or two such solo spreads in the whole album. Do NOT crowd two high "
-    "hero_score photos onto one spread — give each its own spread as the clear hero. "
-    "Mix orientations so a spread looks balanced; use EVERY photo exactly once. "
-    'Respond ONLY as JSON: {"spreads": [{"photos": [id, ...], "hero": id}, ...]} '
-    "in album order."
-)
+from mnemosyne.themes import arrange_system
 
 
 def _orientation(p: dict) -> str:
@@ -56,22 +41,27 @@ def _spreads_or_none(spreads, photos: list[dict]) -> list[dict] | None:
     return _repair(spreads, photos)
 
 
-def _ask_model(photos: list[dict]) -> tuple[list[dict] | None, dict | None]:
+def _ask_model(
+    photos: list[dict], *, theme: str
+) -> tuple[list[dict] | None, dict | None]:
     """Ask the reasoning model for a layout. Returns (layout, usage_meta): the
     repaired spread list (or None if unusable, so the caller falls back), plus a
     billed-call usage block for the cloud backend (None for the free local one).
     Backend is OPT-IN like vision — grok only when MNEMOSYNE_ARRANGE_BACKEND=grok,
     so the local dogfood path is never silently swapped for a billed call."""
+    system = arrange_system(theme)
     if (config.ARRANGE_BACKEND or "").strip().lower() == "grok":
-        return _arrange_via_grok(photos)
-    return _arrange_via_ollama(photos)
+        return _arrange_via_grok(photos, system=system)
+    return _arrange_via_ollama(photos, system=system)
 
 
-def _arrange_via_ollama(photos: list[dict]) -> tuple[list[dict] | None, None]:
+def _arrange_via_ollama(
+    photos: list[dict], *, system: str
+) -> tuple[list[dict] | None, None]:
     """Local reasoning model over localhost Ollama — free, unmetered (usage None)."""
     payload = {
         "model": config.ARRANGE_MODEL,
-        "prompt": f"{_SYSTEM}\n\nPhotos:\n{_listing(photos)}",
+        "prompt": f"{system}\n\nPhotos:\n{_listing(photos)}",
         "stream": False,
         "format": "json",
         "options": {"temperature": 0.4},
@@ -93,7 +83,9 @@ def _arrange_via_ollama(photos: list[dict]) -> tuple[list[dict] | None, None]:
     return _spreads_or_none(spreads, photos), None
 
 
-def _arrange_via_grok(photos: list[dict]) -> tuple[list[dict] | None, dict | None]:
+def _arrange_via_grok(
+    photos: list[dict], *, system: str
+) -> tuple[list[dict] | None, dict | None]:
     """Cloud reasoning over xAI's chat API — the lane a real (Ollama-less) host
     runs on. Returns (layout, usage_meta). Follows arrange's always-ship-an-album
     contract: any problem (missing key, HTTP error, bad JSON) returns a None layout
@@ -107,7 +99,7 @@ def _arrange_via_grok(photos: list[dict]) -> tuple[list[dict] | None, dict | Non
     payload = {
         "model": config.GROK_ARRANGE_MODEL,
         "messages": [
-            {"role": "system", "content": _SYSTEM},
+            {"role": "system", "content": system},
             {"role": "user", "content": f"Photos:\n{_listing(photos)}"},
         ],
         "temperature": 0.4,
@@ -203,7 +195,11 @@ def arrange_album(conn: sqlite3.Connection, album_id: int) -> int:
     if not photos:
         return 0
 
-    layout, usage_meta = _ask_model(photos)
+    theme_row = conn.execute(
+        "SELECT gallery_theme FROM albums WHERE id = ?", (album_id,)
+    ).fetchone()
+    theme = (theme_row["gallery_theme"] if theme_row else None) or "food"
+    layout, usage_meta = _ask_model(photos, theme=theme)
     if layout is None:
         print(
             "arrange: reasoning model returned no usable layout — using "

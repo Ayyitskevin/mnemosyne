@@ -64,7 +64,8 @@ def test_grok_arrange_posts_parses_and_meters(monkeypatch):
     monkeypatch.setattr(config, "GROK_ARRANGE_MODEL", "grok-4.20-non-reasoning")
     monkeypatch.setattr(arrange.httpx, "Client", _FakeClient)
 
-    layout, meta = arrange._arrange_via_grok(_PHOTOS)
+    system = arrange.arrange_system("food")
+    layout, meta = arrange._arrange_via_grok(_PHOTOS, system=system)
 
     # The prose+fence wrapper was sliced and the spreads repaired into a layout.
     assert layout == [{"photos": [2], "hero": 2}, {"photos": [1, 3], "hero": 3}]
@@ -77,28 +78,40 @@ def test_grok_arrange_posts_parses_and_meters(monkeypatch):
 
 def test_grok_arrange_missing_key_degrades_to_fallback(monkeypatch):
     monkeypatch.setattr(config, "XAI_API_KEY", None)
-    layout, meta = arrange._arrange_via_grok(_PHOTOS)
+    layout, meta = arrange._arrange_via_grok(_PHOTOS, system=arrange.arrange_system("food"))
     # No crash — None layout signals the caller to use the deterministic fallback.
     assert layout is None and meta is None
 
 
 def test_selector_routes_grok_only_when_opted_in(monkeypatch):
     seen = {}
-    monkeypatch.setattr(arrange, "_arrange_via_grok", lambda p: seen.setdefault("grok", True) or (None, None))
-    monkeypatch.setattr(arrange, "_arrange_via_ollama", lambda p: seen.setdefault("ollama", True) or (None, None))
+    monkeypatch.setattr(
+        arrange, "_arrange_via_grok",
+        lambda p, **kw: seen.setdefault("grok", True) or (None, None),
+    )
+    monkeypatch.setattr(
+        arrange, "_arrange_via_ollama",
+        lambda p, **kw: seen.setdefault("ollama", True) or (None, None),
+    )
 
     monkeypatch.setattr(config, "ARRANGE_BACKEND", "grok")
-    arrange._ask_model(_PHOTOS)
+    arrange._ask_model(_PHOTOS, theme="food")
     assert seen == {"grok": True}
 
 
 def test_selector_defaults_to_local(monkeypatch):
     seen = {}
-    monkeypatch.setattr(arrange, "_arrange_via_grok", lambda p: seen.setdefault("grok", True) or (None, None))
-    monkeypatch.setattr(arrange, "_arrange_via_ollama", lambda p: seen.setdefault("ollama", True) or (None, None))
+    monkeypatch.setattr(
+        arrange, "_arrange_via_grok",
+        lambda p, **kw: seen.setdefault("grok", True) or (None, None),
+    )
+    monkeypatch.setattr(
+        arrange, "_arrange_via_ollama",
+        lambda p, **kw: seen.setdefault("ollama", True) or (None, None),
+    )
 
     monkeypatch.setattr(config, "ARRANGE_BACKEND", None)
-    arrange._ask_model(_PHOTOS)
+    arrange._ask_model(_PHOTOS, theme="food")
     assert seen == {"ollama": True}
 
 
@@ -121,7 +134,7 @@ def test_arrange_album_meters_a_grok_call(tmp_path, monkeypatch):
 
     monkeypatch.setattr(
         arrange, "_ask_model",
-        lambda photos: ([{"photos": [2], "hero": 2}, {"photos": [1, 3], "hero": 3}],
+        lambda photos, **kw: ([{"photos": [2], "hero": 2}, {"photos": [1, 3], "hero": 3}],
                         {"backend": "grok", "model": "m",
                          "tokens": {"prompt_tokens": 300, "completion_tokens": 40,
                                     "total_tokens": 340}, "latency": 0.7}),

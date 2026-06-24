@@ -27,6 +27,11 @@
                     pointer-events: none; }
     .caption { color: #6f675b; font-size: .76rem; margin-top: .5rem;
                display: flex; flex-wrap: wrap; gap: .8rem; }
+    .prints { margin: 0 0 2rem; }
+    .prints a { display: inline-block; text-decoration: none; background: #c9a86a;
+                color: #1a160f; border-radius: 8px; padding: .65rem 1.2rem;
+                font-size: .95rem; font-weight: 600; }
+    .prints a:hover { background: #d8ba7e; }
   </style>
 </head>
 <body>
@@ -36,6 +41,12 @@
       A shared album &nbsp;·&nbsp;
       <a href="/share/{{ token }}/pdf">download PDF &darr;</a>
     </div>
+
+    {% if plutus_offer_url %}
+    <div class="prints">
+      <a href="{{ plutus_offer_url }}" target="_blank" rel="noopener noreferrer">{{ plutus_cta }} &rarr;</a>
+    </div>
+    {% endif %}
 
     {% for spread in spreads %}
       <div class="spread">

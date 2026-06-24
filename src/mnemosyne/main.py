@@ -43,8 +43,10 @@ from mnemosyne import (
     export,
     ingest,
     pipeline,
+    plutus_link,
     runtime,
     share,
+    themes,
     storage,
     urls,
     usage,
@@ -302,7 +304,13 @@ def _save_uploads(files: list[UploadFile], owner_id: int) -> tuple[Path, int]:
 @app.get("/albums/new", response_class=HTMLResponse)
 def new_album_form(request: Request, user: dict = Depends(require_user)):
     return TEMPLATES.TemplateResponse(
-        request, "new_album.html", {"user": user, "max_photos": config.MAX_ALBUM_UPLOAD}
+        request,
+        "new_album.html",
+        {
+            "user": user,
+            "max_photos": config.MAX_ALBUM_UPLOAD,
+            "themes": themes.THEMES,
+        },
     )
 
 
@@ -310,6 +318,7 @@ def new_album_form(request: Request, user: dict = Depends(require_user)):
 def create_album(
     request: Request,
     name: str = Form(""),
+    gallery_theme: str = Form("food"),
     photos: list[UploadFile] = File(default=[]),
     user: dict = Depends(require_user),
     conn: sqlite3.Connection = Depends(get_conn),
@@ -326,6 +335,8 @@ def create_album(
                 "user": user,
                 "max_photos": config.MAX_ALBUM_UPLOAD,
                 "name": name,
+                "gallery_theme": gallery_theme,
+                "themes": themes.THEMES,
                 "error": f"Too many photos — upload at most {config.MAX_ALBUM_UPLOAD} at once.",
             },
         )
@@ -339,13 +350,19 @@ def create_album(
                 "user": user,
                 "max_photos": config.MAX_ALBUM_UPLOAD,
                 "name": name,
+                "gallery_theme": gallery_theme,
+                "themes": themes.THEMES,
                 "error": "No usable images found — add some JPG or PNG photos.",
             },
         )
 
     album_name = name.strip() or "Untitled album"
     album_id = pipeline.enqueue_album(
-        conn, name=album_name, source_dir=dest_dir, owner_id=user["id"]
+        conn,
+        name=album_name,
+        source_dir=dest_dir,
+        owner_id=user["id"],
+        gallery_theme=themes.normalize_theme(gallery_theme),
     )
     _wake_worker(request)
     return RedirectResponse(f"/albums/{album_id}", status_code=303)
@@ -391,6 +408,9 @@ def show_album(
             "spread_count": len(data["spreads"]),
             "regenerated": request.query_params.get("regenerated") == "1",
             "regenerate_error": request.query_params.get("regenerate_error"),
+            "plutus_saved": request.query_params.get("plutus_saved") == "1",
+            "plutus_error": request.query_params.get("plutus_error"),
+            "plutus_configured": bool(config.PLUTUS_URL),
         },
     )
 
@@ -569,6 +589,23 @@ def photo_file(
 # --- share links: an owner hands a finished album to someone with no account -----
 
 
+@app.post("/albums/{album_id}/plutus-link")
+def save_plutus_link(
+    album_id: int,
+    plutus_offer_url: str = Form(""),
+    user: dict = Depends(require_user),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    _require_owned_album(conn, album_id, user)
+    saved = plutus_link.save_offer_url(conn, album_id, user["id"], plutus_offer_url)
+    if plutus_offer_url.strip() and saved is None:
+        return RedirectResponse(
+            f"/albums/{album_id}?plutus_error=invalid+Plutus+offer+URL",
+            status_code=303,
+        )
+    return RedirectResponse(f"/albums/{album_id}?plutus_saved=1", status_code=303)
+
+
 @app.post("/albums/{album_id}/share")
 def create_share(
     album_id: int,
@@ -612,7 +649,13 @@ def shared_album(
     return TEMPLATES.TemplateResponse(
         request,
         "share.html",
-        {"album": data["album"], "spreads": data["spreads"], "token": token},
+        {
+            "album": data["album"],
+            "spreads": data["spreads"],
+            "token": token,
+            "plutus_offer_url": data["album"].get("plutus_offer_url"),
+            "plutus_cta": plutus_link.offer_cta_label(),
+        },
     )
 
 

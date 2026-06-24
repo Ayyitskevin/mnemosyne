@@ -91,7 +91,7 @@ def test_grok_backend_posts_to_xai_and_parses(jpeg, monkeypatch, tmp_path):
     monkeypatch.setattr(config, "ROUTING_LOG", tmp_path / "v.log")
     monkeypatch.setattr(vision.httpx, "Client", _FakeClient)
 
-    out = vision._analyze_one_via_grok(jpeg)
+    out = vision._analyze_one_via_grok(jpeg, theme="food")
     assert out["scene"] == "hero plated dish"
     assert out["hero_score"] == 0.9
     # The billed call carries its usage up for metering (look_at_album writes the
@@ -112,14 +112,20 @@ def test_grok_backend_posts_to_xai_and_parses(jpeg, monkeypatch, tmp_path):
 def test_grok_backend_requires_key(jpeg, monkeypatch):
     monkeypatch.setattr(config, "XAI_API_KEY", None)
     with pytest.raises(RuntimeError, match="XAI_API_KEY"):
-        vision._analyze_one_via_grok(jpeg)
+        vision._analyze_one_via_grok(jpeg, theme="food")
 
 
 def test_selector_routes_grok_only_when_opted_in(jpeg, monkeypatch):
     calls = {}
-    monkeypatch.setattr(vision, "_analyze_one_via_grok", lambda p: calls.setdefault("grok", p))
-    monkeypatch.setattr(vision, "_analyze_one_via_ollama", lambda p: calls.setdefault("ollama", p))
-    monkeypatch.setattr(vision, "_analyze_one_via_argus", lambda p: calls.setdefault("argus", p))
+    monkeypatch.setattr(
+        vision, "_analyze_one_via_grok", lambda p, **kw: calls.setdefault("grok", p)
+    )
+    monkeypatch.setattr(
+        vision, "_analyze_one_via_ollama", lambda p, **kw: calls.setdefault("ollama", p)
+    )
+    monkeypatch.setattr(
+        vision, "_analyze_one_via_argus", lambda p, **kw: calls.setdefault("argus", p)
+    )
 
     # Explicit grok.
     monkeypatch.setattr(config, "VISION_BACKEND", "grok")
@@ -129,9 +135,15 @@ def test_selector_routes_grok_only_when_opted_in(jpeg, monkeypatch):
 
 def test_selector_defaults_to_ollama_not_grok(jpeg, monkeypatch):
     calls = {}
-    monkeypatch.setattr(vision, "_analyze_one_via_grok", lambda p: calls.setdefault("grok", p))
-    monkeypatch.setattr(vision, "_analyze_one_via_ollama", lambda p: calls.setdefault("ollama", p))
-    monkeypatch.setattr(vision, "_analyze_one_via_argus", lambda p: calls.setdefault("argus", p))
+    monkeypatch.setattr(
+        vision, "_analyze_one_via_grok", lambda p, **kw: calls.setdefault("grok", p)
+    )
+    monkeypatch.setattr(
+        vision, "_analyze_one_via_ollama", lambda p, **kw: calls.setdefault("ollama", p)
+    )
+    monkeypatch.setattr(
+        vision, "_analyze_one_via_argus", lambda p, **kw: calls.setdefault("argus", p)
+    )
 
     monkeypatch.setattr(config, "VISION_BACKEND", None)
     monkeypatch.setattr(config, "ARGUS_URL", None)
@@ -141,9 +153,15 @@ def test_selector_defaults_to_ollama_not_grok(jpeg, monkeypatch):
 
 def test_selector_defaults_to_argus_when_url_set(jpeg, monkeypatch):
     calls = {}
-    monkeypatch.setattr(vision, "_analyze_one_via_grok", lambda p: calls.setdefault("grok", p))
-    monkeypatch.setattr(vision, "_analyze_one_via_ollama", lambda p: calls.setdefault("ollama", p))
-    monkeypatch.setattr(vision, "_analyze_one_via_argus", lambda p: calls.setdefault("argus", p))
+    monkeypatch.setattr(
+        vision, "_analyze_one_via_grok", lambda p, **kw: calls.setdefault("grok", p)
+    )
+    monkeypatch.setattr(
+        vision, "_analyze_one_via_ollama", lambda p, **kw: calls.setdefault("ollama", p)
+    )
+    monkeypatch.setattr(
+        vision, "_analyze_one_via_argus", lambda p, **kw: calls.setdefault("argus", p)
+    )
 
     monkeypatch.setattr(config, "VISION_BACKEND", None)
     monkeypatch.setattr(config, "ARGUS_URL", "http://mickey:8010")

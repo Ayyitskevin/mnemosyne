@@ -31,30 +31,7 @@ import httpx2 as httpx
 from PIL import Image
 
 from mnemosyne import config, storage, usage
-
-PROMPT = (
-    "You are a photo editor culling a restaurant/food photo shoot to design an "
-    "album. Look at this single photo and respond ONLY with JSON of the form "
-    '{"scene": "...", "hero_score": 0.0}. '
-    "scene = a short 3-6 word label of what the shot is and its role in the "
-    "story, e.g. 'wide interior establishing shot', 'overhead hero plated dish', "
-    "'macro food detail', 'chef plating action', 'cocktail/drink detail', "
-    "'closing ambiance shot'. "
-    "hero_score = a float 0.0-1.0 for how striking and album-cover-worthy this ONE "
-    "image is on its own. BE DISCERNING AND USE THE FULL RANGE — in any real "
-    "gallery MOST shots are NOT heroes, so most scores should fall BELOW 0.6. "
-    "Reserve high scores; do not bunch everything near 0.8. Calibrate to this "
-    "rubric: "
-    "0.9-1.0 = exceptional, genuinely cover-worthy (a stunning plated hero dish, "
-    "a show-stopping wide); "
-    "0.7-0.85 = strong feature shot, would anchor a spread but not the cover; "
-    "0.4-0.65 = solid supporting shot (ambiance, table setting, a nice drink); "
-    "0.2-0.35 = a small detail or context filler (a macro crumb, a napkin, a "
-    "hand); "
-    "0.0-0.15 = weak or throwaway. "
-    "A pleasant cocktail or latte-art detail is supporting (~0.4-0.5), NOT a hero. "
-    "Judge THIS photo honestly against that scale."
-)
+from mnemosyne.themes import vision_prompt
 
 
 def _b64(path: str) -> str:
@@ -174,11 +151,11 @@ def _analyze_one_via_argus(image_path: str) -> dict:
     return {"scene": scene, "hero_score": round(hero_score, 2)}
 
 
-def _analyze_one_via_ollama(image_path: str) -> dict:
+def _analyze_one_via_ollama(image_path: str, *, theme: str) -> dict:
     """Original local path: full-res image to mickey's qwen3-vl over localhost."""
     payload = {
         "model": config.VISION_MODEL,
-        "prompt": PROMPT,
+        "prompt": vision_prompt(theme),
         "images": [_b64(image_path)],
         "stream": False,
         "format": "json",          # make Ollama emit strict JSON
@@ -191,7 +168,7 @@ def _analyze_one_via_ollama(image_path: str) -> dict:
     return _parse_scene_hero(raw)
 
 
-def _analyze_one_via_grok(image_path: str) -> dict:
+def _analyze_one_via_grok(image_path: str, *, theme: str) -> dict:
     """SaaS runtime path: a 512px thumbnail to xAI's OpenAI-compatible vision API.
 
     Logs token usage + latency to mickey-routing.log so $/album is measurable from
@@ -208,7 +185,7 @@ def _analyze_one_via_grok(image_path: str) -> dict:
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": PROMPT},
+                    {"type": "text", "text": vision_prompt(theme)},
                     {
                         "type": "image_url",
                         "image_url": {
@@ -270,7 +247,7 @@ def _log_grok_usage(image_path: str, usage: dict, latency: float) -> None:
         pass
 
 
-def analyze_one(image_path: str) -> dict:
+def analyze_one(image_path: str, *, theme: str = "food") -> dict:
     """Ask the selected vision backend about one image; return {scene, hero_score}.
 
     Backend precedence: explicit config.VISION_BACKEND wins; otherwise local-first
@@ -279,18 +256,22 @@ def analyze_one(image_path: str) -> dict:
     """
     backend = (config.VISION_BACKEND or "").strip().lower()
     if backend == "grok":
-        return _analyze_one_via_grok(image_path)
+        return _analyze_one_via_grok(image_path, theme=theme)
     if backend == "ollama":
-        return _analyze_one_via_ollama(image_path)
+        return _analyze_one_via_ollama(image_path, theme=theme)
     if backend == "argus" or (not backend and getattr(config, "ARGUS_URL", None)):
         return _analyze_one_via_argus(image_path)
-    return _analyze_one_via_ollama(image_path)
+    return _analyze_one_via_ollama(image_path, theme=theme)
 
 
 def look_at_album(conn: sqlite3.Connection, album_id: int) -> int:
     """Analyze every not-yet-looked-at photo in the album; return how many were
     analyzed. Idempotent: photos that already have a scene are skipped, so a
     re-run only fills gaps (and a crash mid-way loses no completed work)."""
+    theme_row = conn.execute(
+        "SELECT gallery_theme FROM albums WHERE id = ?", (album_id,)
+    ).fetchone()
+    theme = (theme_row["gallery_theme"] if theme_row else None) or "food"
     rows = conn.execute(
         "SELECT id, storage_key FROM photos "
         "WHERE album_id = ? AND scene IS NULL ORDER BY id",
@@ -303,7 +284,7 @@ def look_at_album(conn: sqlite3.Connection, album_id: int) -> int:
         # a remote driver downloads + cleans up around this block, the local one
         # just hands back the file.
         with store.open_path(row["storage_key"]) as image_path:
-            result = analyze_one(str(image_path))
+            result = analyze_one(str(image_path), theme=theme)
         conn.execute(
             "UPDATE photos SET scene = ?, hero_score = ? WHERE id = ?",
             (result["scene"], result["hero_score"], row["id"]),

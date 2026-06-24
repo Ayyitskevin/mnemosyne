@@ -14,14 +14,23 @@ from mnemosyne import arrange, config, ingest, storage, vision
 
 
 def build_album(
-    conn: sqlite3.Connection, *, name: str, source_dir: str | Path, owner_id: int
+    conn: sqlite3.Connection,
+    *,
+    name: str,
+    source_dir: str | Path,
+    owner_id: int,
+    gallery_theme: str = "food",
 ) -> dict:
     """Run a folder all the way through to a laid-out album, synchronously. Used
     by the CLI `build`, where blocking the caller is fine. The web path uses
     enqueue_album + the worker instead. Returns a small summary (album id + how
     many photos were analyzed + how many spreads)."""
     album_id = ingest.ingest_folder(
-        conn, name=name, source_dir=source_dir, owner_id=owner_id
+        conn,
+        name=name,
+        source_dir=source_dir,
+        owner_id=owner_id,
+        gallery_theme=gallery_theme,
     )
     looked = vision.look_at_album(conn, album_id)
     spreads = arrange.arrange_album(conn, album_id)
@@ -29,7 +38,12 @@ def build_album(
 
 
 def enqueue_album(
-    conn: sqlite3.Connection, *, name: str, source_dir: str | Path, owner_id: int
+    conn: sqlite3.Connection,
+    *,
+    name: str,
+    source_dir: str | Path,
+    owner_id: int,
+    gallery_theme: str = "food",
 ) -> int:
     """Create a 'pending' album and return its id WITHOUT running the pipeline.
     The web upload route calls this so it can redirect immediately; the background
@@ -37,7 +51,12 @@ def enqueue_album(
     already live in source_dir (the route saved them) — the worker ingests them
     when it processes the album, so nothing here reads images."""
     return ingest.create_album(
-        conn, name=name, source_dir=source_dir, owner_id=owner_id, status="pending"
+        conn,
+        name=name,
+        source_dir=source_dir,
+        owner_id=owner_id,
+        status="pending",
+        gallery_theme=gallery_theme,
     )
 
 

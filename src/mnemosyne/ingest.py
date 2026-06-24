@@ -14,6 +14,7 @@ from pathlib import Path
 from PIL import Image, ImageOps
 
 from mnemosyne import storage
+from mnemosyne.themes import normalize_theme
 
 # The file types we treat as album-eligible photos. Anything else in the folder
 # (sidecar files, .DS_Store, raw .CR2/.NEF) is ignored for Phase 0.
@@ -27,15 +28,18 @@ def create_album(
     source_dir: str | Path,
     owner_id: int,
     status: str = "ready",
+    gallery_theme: str = "food",
 ) -> int:
     """Insert the album row and return its id, without touching photos. The one
     place albums come into being, so both the synchronous CLI path and the async
     web path agree on the columns. status defaults to 'ready' (the CLI builds
     fully before returning); the web path passes 'pending' so the worker can pick
     it up. owner_id is required — no album is ever created ownerless from here."""
+    theme = normalize_theme(gallery_theme)
     cur = conn.execute(
-        "INSERT INTO albums (name, source_dir, owner_id, status) VALUES (?, ?, ?, ?)",
-        (name, str(Path(source_dir).expanduser()), owner_id, status),
+        "INSERT INTO albums (name, source_dir, owner_id, status, gallery_theme) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (name, str(Path(source_dir).expanduser()), owner_id, status, theme),
     )
     conn.commit()
     return cur.lastrowid
@@ -80,7 +84,12 @@ def ingest_photos(
 
 
 def ingest_folder(
-    conn: sqlite3.Connection, *, name: str, source_dir: str | Path, owner_id: int
+    conn: sqlite3.Connection,
+    *,
+    name: str,
+    source_dir: str | Path,
+    owner_id: int,
+    gallery_theme: str = "food",
 ) -> int:
     """Create an album for source_dir, owned by owner_id, and record every image.
 
@@ -90,7 +99,9 @@ def ingest_folder(
     src = Path(source_dir).expanduser()
     if not src.is_dir():
         raise NotADirectoryError(f"not a folder: {src}")
-    album_id = create_album(conn, name=name, source_dir=src, owner_id=owner_id)
+    album_id = create_album(
+        conn, name=name, source_dir=src, owner_id=owner_id, gallery_theme=gallery_theme
+    )
     ingest_photos(conn, album_id, src)
     return album_id
 

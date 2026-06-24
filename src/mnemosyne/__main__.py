@@ -13,7 +13,7 @@ import getpass
 import sys
 from pathlib import Path
 
-from mnemosyne import albums, auth, config, db, pipeline, usage
+from mnemosyne import albums, auth, config, db, pipeline, themes, usage
 
 
 def _fmt_cost(cost: float | None) -> str:
@@ -65,6 +65,9 @@ def main() -> None:
     b.add_argument("--name", default=None, help="album name (defaults to folder name)")
     b.add_argument("--owner-email", default=None,
                    help="account that owns the album (defaults to the sole account)")
+    b.add_argument("--theme", default="food",
+                   help="gallery type for vision + arrange prompts "
+                        f"({', '.join(themes.THEMES)})")
 
     s = sub.add_parser("serve", help="serve the web preview")
     s.add_argument("--port", type=int, default=8000)
@@ -98,7 +101,11 @@ def main() -> None:
         owner_id = _resolve_owner(conn, args.owner_email)
         name = args.name or Path(args.folder).expanduser().name
         result = pipeline.build_album(
-            conn, name=name, source_dir=args.folder, owner_id=owner_id
+            conn,
+            name=name,
+            source_dir=args.folder,
+            owner_id=owner_id,
+            gallery_theme=themes.normalize_theme(args.theme),
         )
         print(
             f"album #{result['album_id']}: looked at {result['looked']} photos, "

@@ -30,9 +30,9 @@ def no_models(monkeypatch):
     fixed scene+score, and arrange's reasoning call returns nothing so the
     deterministic fallback lays out the spreads."""
     monkeypatch.setattr(
-        vision, "analyze_one", lambda path: {"scene": "food", "hero_score": 0.5}
+        vision, "analyze_one", lambda path, **kw: {"scene": "food", "hero_score": 0.5}
     )
-    monkeypatch.setattr(arrange, "_ask_model", lambda photos: (None, None))
+    monkeypatch.setattr(arrange, "_ask_model", lambda photos, **kw: (None, None))
 
 
 def _user(conn) -> int:
@@ -98,7 +98,7 @@ def test_pipeline_error_becomes_failed_not_a_crash(conn, tmp_path, monkeypatch):
     gdir = _make_gallery(tmp_path, 2)
     aid = pipeline.enqueue_album(conn, name="g", source_dir=gdir, owner_id=uid)
 
-    def boom(path):
+    def boom(path, **kw):
         raise RuntimeError("vision down")
 
     monkeypatch.setattr(vision, "analyze_one", boom)

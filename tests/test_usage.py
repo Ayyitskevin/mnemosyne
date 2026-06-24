@@ -143,7 +143,7 @@ def test_look_at_album_records_a_vision_row_per_billed_photo(conn, monkeypatch):
     for i in range(3):
         store.put(f"a{aid}/p{i}.jpg", b"x")
 
-    monkeypatch.setattr(vision, "analyze_one", lambda path: {
+    monkeypatch.setattr(vision, "analyze_one", lambda path, **kw: {
         "scene": "food", "hero_score": 0.5,
         "usage_meta": {"backend": "grok", "model": "m", "tokens": _TOKENS, "latency": 0.3},
     })
@@ -169,14 +169,18 @@ def test_local_vision_path_records_nothing(conn, monkeypatch):
     conn.commit()
     vision.storage.get_storage().put(f"a{aid}/p.jpg", b"x")
 
-    monkeypatch.setattr(vision, "analyze_one", lambda path: {"scene": "food", "hero_score": 0.5})
+    monkeypatch.setattr(
+        vision, "analyze_one", lambda path, **kw: {"scene": "food", "hero_score": 0.5}
+    )
     vision.look_at_album(conn, aid)
     assert usage.album_summary(conn, aid)["calls"] == 0
 
 
 def test_delete_album_clears_its_usage_rows(conn, monkeypatch):
-    monkeypatch.setattr(arrange, "_ask_model", lambda photos: (None, None))
-    monkeypatch.setattr(vision, "analyze_one", lambda path: {"scene": "food", "hero_score": 0.5})
+    monkeypatch.setattr(arrange, "_ask_model", lambda photos, **kw: (None, None))
+    monkeypatch.setattr(
+        vision, "analyze_one", lambda path, **kw: {"scene": "food", "hero_score": 0.5}
+    )
     aid = _album(conn)
     usage.record(conn, album_id=aid, photo_id=None, stage="arrange", backend="grok",
                  model="m", tokens=_TOKENS, latency=1.0)

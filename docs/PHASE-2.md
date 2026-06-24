@@ -102,11 +102,13 @@ Think of it as five workstreams stacked so each one stands on the one below it.
 
 **Shipped in-repo (partial Workstream 5):**
 - Share links with expiring client view + PDF download
-- `MNEMOSYNE_PUBLIC_URL` for pasteable share URLs behind a tunnel
+- `MNEMOSYNE_PUBLIC_URL` for pasteable share URLs behind a tunnel (`scripts/wire-public-url.sh`)
 - Cloud-inference COGS on the album page and albums index (pairs with `mnemosyne cost` CLI)
 - Runtime strip on `/albums` + `/healthz` backends (vision/arrange/storage)
 - **Regenerate layout** — re-run arrange only (keeps vision scores; replaces spreads/manual nudges)
 - Failed albums: inline retry from the index; copy button on share links
+- **Gallery themes** — food / wedding / general / event steer vision + arrange prompts per album
+- **Plutus cross-sell** — optional `plutus_offer_url` on an album; share view shows an "Order prints" CTA when set (`MNEMOSYNE_PLUTUS_URL` for path-only links)
 
 ---
 

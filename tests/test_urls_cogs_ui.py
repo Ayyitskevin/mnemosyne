@@ -13,8 +13,10 @@ from mnemosyne.main import app, get_conn
 
 @pytest.fixture
 def no_models(monkeypatch):
-    monkeypatch.setattr(vision, "analyze_one", lambda path: {"scene": "food", "hero_score": 0.5})
-    monkeypatch.setattr(arrange, "_ask_model", lambda photos: (None, None))
+    monkeypatch.setattr(
+        vision, "analyze_one", lambda path, **kw: {"scene": "food", "hero_score": 0.5}
+    )
+    monkeypatch.setattr(arrange, "_ask_model", lambda photos, **kw: (None, None))
 
 
 @pytest.fixture

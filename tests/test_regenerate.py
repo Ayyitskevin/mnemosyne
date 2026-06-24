@@ -22,14 +22,16 @@ def conn(tmp_path):
 def no_models(monkeypatch):
     calls = {"n": 0}
 
-    def fake_ask(photos):
+    def fake_ask(photos, *, theme="food"):
         calls["n"] += 1
         ids = [p["id"] for p in photos]
         if calls["n"] == 1:
             return [{"photos": ids, "hero": ids[0]}], None
         return [{"photos": list(reversed(ids)), "hero": ids[-1]}], None
 
-    monkeypatch.setattr(vision, "analyze_one", lambda path: {"scene": "dish", "hero_score": 0.5})
+    monkeypatch.setattr(
+        vision, "analyze_one", lambda path, **kw: {"scene": "dish", "hero_score": 0.5}
+    )
     monkeypatch.setattr(arrange, "_ask_model", fake_ask)
 
 

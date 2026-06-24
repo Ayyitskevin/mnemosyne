@@ -32,6 +32,7 @@ def backend_status() -> dict[str, str | bool]:
         "arrange_model": _arrange_model_label(arrange),
         "storage": config.STORAGE_BACKEND,
         "public_url": bool(config.PUBLIC_URL),
+        "plutus_url": bool(config.PLUTUS_URL),
         "grok_priced": bool(
             config.GROK_PRICE_PROMPT_PER_M or config.GROK_PRICE_COMPLETION_PER_M
         ),
