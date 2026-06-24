@@ -72,6 +72,21 @@ def process_album(conn: sqlite3.Connection, album_id: int) -> dict:
     return {"album_id": album_id, "looked": looked, "spreads": spreads}
 
 
+def regenerate_layout(conn: sqlite3.Connection, album_id: int) -> int:
+    """Re-run only the arrange step for a ready album.
+
+    Vision scores and photo bytes are preserved; spreads and placements are
+    replaced. Manual nudges (move spread/hero/slot) are lost — the owner opts
+    in via the UI confirm dialog.
+    """
+    row = conn.execute(
+        "SELECT status FROM albums WHERE id = ?", (album_id,)
+    ).fetchone()
+    if row is None or row["status"] != "ready":
+        raise LookupError("album must be ready to regenerate layout")
+    return arrange.arrange_album(conn, album_id)
+
+
 def requeue_album(conn: sqlite3.Connection, album_id: int) -> bool:
     """Send a FAILED album back to 'pending' so the worker retries it (clearing
     the stale error). Returns True if it actually re-queued one — only failed

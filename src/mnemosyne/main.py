@@ -19,6 +19,7 @@ import os
 import secrets
 import tempfile
 from io import BytesIO
+from urllib.parse import quote_plus
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import (
@@ -42,6 +43,7 @@ from mnemosyne import (
     export,
     ingest,
     pipeline,
+    runtime,
     share,
     storage,
     urls,
@@ -130,8 +132,13 @@ async def _login_redirect(request: Request, exc: StarletteHTTPException):
 
 
 @app.get("/healthz")
-def healthz() -> dict:
-    return {"ok": True}
+def healthz(request: Request) -> dict:
+    worker = getattr(request.app.state, "worker", None)
+    return {
+        "ok": True,
+        "worker": worker is not None,
+        "backends": runtime.backend_status(),
+    }
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -238,7 +245,7 @@ def index(
     return TEMPLATES.TemplateResponse(
         request,
         "albums.html",
-        {"albums": rows, "user": user},
+        {"albums": rows, "user": user, "runtime": runtime.backend_status()},
     )
 
 
@@ -367,6 +374,9 @@ def show_album(
     if data["album"].get("share_token"):
         share_link = urls.share_url(request, data["album"]["share_token"])
     cost_report = usage.album_cost_report(conn, album_id)
+    photo_count = conn.execute(
+        "SELECT COUNT(*) AS n FROM photos WHERE album_id = ?", (album_id,)
+    ).fetchone()["n"]
     return TEMPLATES.TemplateResponse(
         request,
         "album.html",
@@ -377,8 +387,35 @@ def show_album(
             "share_url": share_link,
             "cost_report": cost_report,
             "cost_label": usage.format_cost(cost_report.get("cost_usd")),
+            "photo_count": photo_count,
+            "spread_count": len(data["spreads"]),
+            "regenerated": request.query_params.get("regenerated") == "1",
+            "regenerate_error": request.query_params.get("regenerate_error"),
         },
     )
+
+
+@app.post("/albums/{album_id}/regenerate")
+def regenerate_album(
+    album_id: int,
+    user: dict = Depends(require_user),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    """Re-run arrange only — keeps vision, replaces spreads (owner confirm in UI)."""
+    _require_owned_album(conn, album_id, user)
+    try:
+        pipeline.regenerate_layout(conn, album_id)
+    except LookupError:
+        return RedirectResponse(
+            f"/albums/{album_id}?regenerate_error=album+not+ready",
+            status_code=303,
+        )
+    except Exception as exc:
+        return RedirectResponse(
+            f"/albums/{album_id}?regenerate_error={quote_plus(str(exc)[:120])}",
+            status_code=303,
+        )
+    return RedirectResponse(f"/albums/{album_id}?regenerated=1", status_code=303)
 
 
 @app.post("/albums/{album_id}/retry")

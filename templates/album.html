@@ -50,6 +50,7 @@
                     border-radius: 4px; padding: .35rem .7rem; cursor: pointer;
                     font-size: .82rem; }
     .share button:hover { border-color: #4a443a; }
+    .share button.secondary { background: #1b1814; color: #d8b25a; }
     .share-live { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
     .share-url { flex: 1 1 18rem; min-width: 0; background: #0e0d0c; color: #e8e2d8;
                  border: 1px solid #2a2620; border-radius: 4px; padding: .35rem .5rem;
@@ -66,14 +67,32 @@
                   font-size: .78rem; color: #9b9183; }
     .cogs td { padding: .2rem 0; }
     .cogs td:last-child { text-align: right; color: #cfc6b8; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center;
+               margin: .5rem 0 1rem; }
+    .toolbar a, .toolbar button { font-size: .85rem; }
+    .toolbar button.secondary { background: #1b1814; color: #d8b25a; border: 1px solid #2a2620;
+                                 border-radius: 4px; padding: .3rem .65rem; cursor: pointer; }
+    .toolbar button.secondary:hover { border-color: #4a443a; }
+    .notice { color: #8fd4a0; font-size: .85rem; margin: .5rem 0 0; }
+    .notice.err { color: #d99; }
+    .album-meta { color: #9b9183; font-size: .85rem; margin: .25rem 0 .75rem; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <a class="back" href="/albums">&larr; all albums</a>
     <h1>{{ album.name }}</h1>
-    <a class="back" href="/albums/{{ album.id }}/pdf">download PDF &darr;</a>
-    <a class="back" href="/albums/{{ album.id }}/delete">&nbsp;·&nbsp; delete album</a>
+    <p class="album-meta">{{ photo_count }} photos · {{ spread_count }} spreads{% if album.created_at %} · {{ album.created_at }}{% endif %}</p>
+    {% if regenerated %}<p class="notice">Layout regenerated — vision scores unchanged, spreads replaced.</p>{% endif %}
+    {% if regenerate_error %}<p class="notice err">{{ regenerate_error|replace('+', ' ') }}</p>{% endif %}
+    <div class="toolbar">
+      <a class="back" href="/albums/{{ album.id }}/pdf">download PDF &darr;</a>
+      <form method="post" action="/albums/{{ album.id }}/regenerate" style="margin:0"
+            onsubmit="return confirm('Regenerate spread layout? Manual nudges will be replaced.');">
+        <button type="submit" class="secondary">regenerate layout</button>
+      </form>
+      <a class="back" href="/albums/{{ album.id }}/delete">delete album</a>
+    </div>
 
     {% if cost_report.calls > 0 %}
     <div class="cogs">
@@ -97,8 +116,9 @@
       {% if share_url %}
         <div class="share-live">
           <span class="share-exp">share link</span>
-          <input class="share-url" type="text" readonly value="{{ share_url }}"
+          <input class="share-url" id="share-url" type="text" readonly value="{{ share_url }}"
                  onclick="this.select()">
+          <button type="button" class="secondary" id="copy-share">copy</button>
           <span class="share-exp">expires {{ album.share_expires_at }} UTC</span>
           <form method="post" action="/albums/{{ album.id }}/share">
             <button type="submit" title="generate a fresh link; the current one stops working">new link</button>
@@ -170,5 +190,25 @@
       </div>
     {% endfor %}
   </div>
+  {% if share_url %}
+  <script>
+  (function () {
+    var btn = document.getElementById('copy-share');
+    var el = document.getElementById('share-url');
+    if (!btn || !el) return;
+    btn.addEventListener('click', function () {
+      var text = el.value.trim();
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () {
+          btn.textContent = 'copied';
+          setTimeout(function () { btn.textContent = 'copy'; }, 1500);
+        });
+      } else {
+        el.select();
+      }
+    });
+  })();
+  </script>
+  {% endif %}
 </body>
 </html>

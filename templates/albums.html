@@ -37,6 +37,14 @@
                color: #1a160f; border-radius: 8px; padding: .6rem 1.2rem;
                font-size: .95rem; font-weight: 600; margin-bottom: 1.8rem; }
     a.newbtn:hover { background: #d8ba7e; }
+    .runtime { color: #6f675b; font-size: .78rem; margin: -.5rem 0 1.5rem;
+               padding: .55rem .75rem; border: 1px solid #221f1b; border-radius: 8px;
+               background: #12100d; }
+    .runtime strong { color: #9b9183; font-weight: 600; }
+    .retry-form { display: inline; margin: 0; }
+    .retry-form button { background: none; border: 0; color: #d8b25a; cursor: pointer;
+                         font-size: .82rem; padding: 0; }
+    .retry-form button:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -55,6 +63,14 @@
         </div>
       {% endif %}
     </div>
+    {% if runtime %}
+    <p class="runtime">
+      <strong>Runtime</strong> —
+      vision: {{ runtime.vision }} ({{ runtime.vision_model }}) ·
+      arrange: {{ runtime.arrange }} ({{ runtime.arrange_model }}) ·
+      storage: {{ runtime.storage }}{% if runtime.public_url %} · public URL set{% endif %}{% if runtime.grok_priced %} · COGS priced{% endif %}
+    </p>
+    {% endif %}
     <a class="newbtn" href="/albums/new">+ New album</a>
     {% if albums %}
       {% for a in albums %}
@@ -66,6 +82,14 @@
           <div class="meta">{{ a.photo_count }} photos · {{ a.spread_count }} spreads · {{ a.created_at }}</div>
           {% if a.cogs and a.cogs.calls %}
           <div class="cogs">cloud COGS: {{ a.cogs.calls }} call(s) · {{ a.cogs.total_tokens }} tok{% if a.cogs.cost_usd is not none %} · ${{ "%.4f"|format(a.cogs.cost_usd) }}{% endif %}</div>
+          {% endif %}
+          {% if a.status == 'failed' %}
+          <div class="cogs">
+            build failed{% if a.error %} — {{ a.error[:80] }}{% endif %}
+            <form class="retry-form" method="post" action="/albums/{{ a.id }}/retry">
+              <button type="submit">retry</button>
+            </form>
+          </div>
           {% endif %}
         </a>
       {% endfor %}

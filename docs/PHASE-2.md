@@ -104,6 +104,9 @@ Think of it as five workstreams stacked so each one stands on the one below it.
 - Share links with expiring client view + PDF download
 - `MNEMOSYNE_PUBLIC_URL` for pasteable share URLs behind a tunnel
 - Cloud-inference COGS on the album page and albums index (pairs with `mnemosyne cost` CLI)
+- Runtime strip on `/albums` + `/healthz` backends (vision/arrange/storage)
+- **Regenerate layout** — re-run arrange only (keeps vision scores; replaces spreads/manual nudges)
+- Failed albums: inline retry from the index; copy button on share links
 
 ---
 
