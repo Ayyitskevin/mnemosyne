@@ -35,7 +35,8 @@ print(f"  plutus_api.configured={plutus_api.configured()}")
 if not plutus_api.configured():
     raise SystemExit(
         "Wire Plutus: MNEMOSYNE_PLUTUS_URL=https://plutus.kleephotography.com "
-        "MNEMOSYNE_PLUTUS_API_TOKEN=<admin> MNEMOSYNE_PLUTUS_TENANT_ID=flow-studio"
+        "MNEMOSYNE_PLUTUS_API_TOKEN=<admin> MNEMOSYNE_PLUTUS_TENANT_ID=flow-studio "
+        "MNEMOSYNE_PLUTUS_AUTO_LINK=true"
     )
 PY
 

@@ -44,6 +44,8 @@ from mnemosyne import (
     edits,
     export,
     ingest,
+    mise_client,
+    mise_import,
     pipeline,
     plutus_api,
     plutus_link,
@@ -464,8 +466,69 @@ def new_album_form(request: Request, user: dict = Depends(require_user)):
             "user": user,
             "max_photos": config.MAX_ALBUM_UPLOAD,
             "themes": themes.THEMES,
+            "mise_import_enabled": mise_client.configured(),
         },
     )
+
+
+@app.get("/albums/import/mise", response_class=HTMLResponse)
+def import_mise_form(request: Request, user: dict = Depends(require_user)):
+    if not mise_client.configured():
+        raise HTTPException(status_code=404, detail="mise import not configured")
+    galleries: list[dict] = []
+    error = None
+    try:
+        body = mise_client.list_galleries(published=True)
+        galleries = body.get("galleries") or []
+    except mise_client.MiseClientError as exc:
+        error = str(exc)
+    return TEMPLATES.TemplateResponse(
+        request,
+        "import_mise.html",
+        {
+            "user": user,
+            "galleries": galleries,
+            "themes": themes.THEMES,
+            "error": error,
+        },
+    )
+
+
+@app.post("/albums/import/mise")
+def import_mise_gallery(
+    request: Request,
+    gallery_id: int = Form(...),
+    gallery_theme: str = Form("food"),
+    user: dict = Depends(require_user),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    if not mise_client.configured():
+        raise HTTPException(status_code=404, detail="mise import not configured")
+    if not billing.upload_allowed(user):
+        return RedirectResponse("/billing", status_code=303)
+    try:
+        album_id = mise_import.import_gallery(
+            conn,
+            owner_id=user["id"],
+            gallery_id=gallery_id,
+            gallery_theme=themes.normalize_theme(gallery_theme),
+        )
+    except mise_import.MiseImportError as exc:
+        return TEMPLATES.TemplateResponse(
+            request,
+            "import_mise.html",
+            {
+                "user": user,
+                "galleries": [],
+                "themes": themes.THEMES,
+                "error": str(exc),
+                "gallery_id": gallery_id,
+                "gallery_theme": gallery_theme,
+            },
+            status_code=400,
+        )
+    _wake_worker(request)
+    return RedirectResponse(f"/albums/{album_id}", status_code=303)
 
 
 @app.post("/albums/new", response_class=HTMLResponse)

@@ -35,6 +35,8 @@ def backend_status() -> dict[str, str | bool]:
         "storage": config.STORAGE_BACKEND,
         "public_url": bool(config.PUBLIC_URL),
         "plutus_url": bool(config.PLUTUS_URL),
+        "mise_import": bool(config.MISE_URL and config.MISE_API_TOKEN),
+        "plutus_auto_link": config.PLUTUS_AUTO_LINK,
         "grok_priced": bool(
             config.GROK_PRICE_PROMPT_PER_M or config.GROK_PRICE_COMPLETION_PER_M
         ),

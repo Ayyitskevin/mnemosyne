@@ -23,7 +23,7 @@ import sqlite3
 import threading
 from pathlib import Path
 
-from mnemosyne import config, db, pipeline
+from mnemosyne import config, db, pipeline, plutus_auto
 
 log = logging.getLogger("mnemosyne.worker")
 
@@ -110,6 +110,7 @@ def _run_one(conn: sqlite3.Connection, album_id: int, claim_token: str) -> None:
     try:
         summary = pipeline.process_album(conn, album_id)
         if _finish_claim(conn, album_id, claim_token, "ready", None):
+            plutus_auto.maybe_attach_offer(conn, album_id)
             log.info("album %s ready: %s", album_id, summary)
         else:
             log.info("album %s finished after its claim was superseded", album_id)

@@ -75,6 +75,9 @@
     </p>
     {% endif %}
     <a class="newbtn" href="/albums/new">+ New album</a>
+    {% if runtime and runtime.mise_import %}
+    <a class="newbtn" href="/albums/import/mise" style="margin-left:.6rem;background:#2a2622;color:#e8e2d8;border:1px solid #3a352e">Import from Mise</a>
+    {% endif %}
     {% if albums %}
       {% for a in albums %}
         <a class="album" href="/albums/{{ a.id }}">

@@ -44,6 +44,8 @@ def enqueue_album(
     source_dir: str | Path,
     owner_id: int,
     gallery_theme: str = "food",
+    mise_gallery_id: int | None = None,
+    plutus_run_id: int | None = None,
 ) -> int:
     """Create a 'pending' album and return its id WITHOUT running the pipeline.
     The web upload route calls this so it can redirect immediately; the background
@@ -57,6 +59,8 @@ def enqueue_album(
         owner_id=owner_id,
         status="pending",
         gallery_theme=gallery_theme,
+        mise_gallery_id=mise_gallery_id,
+        plutus_run_id=plutus_run_id,
     )
 
 

@@ -123,7 +123,9 @@ Think of it as five workstreams stacked so each one stands on the one below it.
 - **Deploy packaging** — `Dockerfile`, `docker-compose.yml`, `fly.toml`
 - **Account lifecycle** — password reset, account delete (`/account`)
 - **Stripe scaffold** — `billing.py` + checkout/portal/webhook routes (`MNEMOSYNE_STRIPE_ENABLED`, off by default)
-- **Plutus auto-link** — `POST /albums/{id}/plutus-generate` via Plutus API (`MNEMOSYNE_PLUTUS_API_TOKEN`)
+- **Plutus auto-link** — `POST /albums/{id}/plutus-generate` via Plutus API; worker auto-mints when `MNEMOSYNE_PLUTUS_AUTO_LINK=true` and `plutus_run_id` is set (from Mise import or form)
+- **Argus vision** — delegate look step via `MNEMOSYNE_ARGUS_URL` (`scripts/wire-argus.sh`, `scripts/dogfood-argus-vision.sh`)
+- **Mise import** — `GET/POST /albums/import/mise` picks a published gallery (`scripts/wire-mise.sh`)
 - **MinIO wire** — `scripts/wire-minio.sh` for local S3-compatible storage dogfood
 - **Dogfood kit** — `scripts/dogfood-invite.sh` (tailnet invite + signup URLs)
 - **Plutus prod dogfood** — `scripts/dogfood-plutus-prod.sh`, `scripts/dogfood-plutus-link.sh`

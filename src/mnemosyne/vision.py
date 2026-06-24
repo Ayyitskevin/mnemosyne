@@ -106,7 +106,7 @@ def _argus_delegation_mode() -> str:
     return mode if mode in ("path", "upload") else "path"
 
 
-def _analyze_one_via_argus(image_path: str) -> dict:
+def _analyze_one_via_argus(image_path: str, *, theme: str = "food") -> dict:
     """Delegate to argus /analyze via shared path or multipart upload.
     Maps argus result (shot_type + keywords + culling.hero_potential) to mnemosyne
     {scene, hero_score}. Safe when argus runs with VISION_BACKEND=mock.
@@ -260,7 +260,7 @@ def analyze_one(image_path: str, *, theme: str = "food") -> dict:
     if backend == "ollama":
         return _analyze_one_via_ollama(image_path, theme=theme)
     if backend == "argus" or (not backend and getattr(config, "ARGUS_URL", None)):
-        return _analyze_one_via_argus(image_path)
+        return _analyze_one_via_argus(image_path, theme=theme)
     return _analyze_one_via_ollama(image_path, theme=theme)
 
 

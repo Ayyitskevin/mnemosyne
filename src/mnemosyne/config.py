@@ -26,6 +26,30 @@ PLUTUS_URL = os.environ.get("MNEMOSYNE_PLUTUS_URL") or None
 PLUTUS_API_TOKEN = os.environ.get("MNEMOSYNE_PLUTUS_API_TOKEN") or None
 # SaaS tenant id when minting offers via admin API token (e.g. flow-studio).
 PLUTUS_TENANT_ID = os.environ.get("MNEMOSYNE_PLUTUS_TENANT_ID") or None
+# When true, worker mints an offer via API after album reaches ready (needs run id).
+PLUTUS_AUTO_LINK = os.environ.get("MNEMOSYNE_PLUTUS_AUTO_LINK", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+}
+# Fallback bundles run id when album.plutus_run_id is unset (dogfood / single-tenant).
+PLUTUS_DEFAULT_RUN_ID = os.environ.get("MNEMOSYNE_PLUTUS_RUN_ID") or None
+
+# Mise gallery import — read-only GET /api/galleries (same token as Argus on flow).
+MISE_URL = os.environ.get("MNEMOSYNE_MISE_URL") or os.environ.get("MISE_URL") or None
+MISE_API_TOKEN = (
+    os.environ.get("MNEMOSYNE_MISE_API_TOKEN")
+    or os.environ.get("MISE_ARGUS_TOKEN")
+    or os.environ.get("ARGUS_MISE_API_TOKEN")
+    or None
+)
+MISE_TIMEOUT = float(os.environ.get("MNEMOSYNE_MISE_TIMEOUT", "30"))
+# Local mirror of Mise originals (e.g. after sync-mise-media.sh) — checked before API path.
+MISE_MEDIA_ROOT = (
+    Path(os.environ["MNEMOSYNE_MISE_MEDIA_ROOT"])
+    if os.environ.get("MNEMOSYNE_MISE_MEDIA_ROOT")
+    else None
+)
 
 # Stripe billing — off until STRIPE_ENABLED=true and keys are set (commitment-class).
 STRIPE_ENABLED = os.environ.get("MNEMOSYNE_STRIPE_ENABLED", "").strip().lower() in {

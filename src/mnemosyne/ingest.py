@@ -29,6 +29,8 @@ def create_album(
     owner_id: int,
     status: str = "ready",
     gallery_theme: str = "food",
+    mise_gallery_id: int | None = None,
+    plutus_run_id: int | None = None,
 ) -> int:
     """Insert the album row and return its id, without touching photos. The one
     place albums come into being, so both the synchronous CLI path and the async
@@ -37,9 +39,17 @@ def create_album(
     it up. owner_id is required — no album is ever created ownerless from here."""
     theme = normalize_theme(gallery_theme)
     cur = conn.execute(
-        "INSERT INTO albums (name, source_dir, owner_id, status, gallery_theme) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (name, str(Path(source_dir).expanduser()), owner_id, status, theme),
+        "INSERT INTO albums (name, source_dir, owner_id, status, gallery_theme, "
+        "mise_gallery_id, plutus_run_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            name,
+            str(Path(source_dir).expanduser()),
+            owner_id,
+            status,
+            theme,
+            mise_gallery_id,
+            plutus_run_id,
+        ),
     )
     conn.commit()
     return cur.lastrowid
