@@ -86,6 +86,12 @@ if systemctl --user is-active mnemosyne >/dev/null 2>&1; then
   sleep 2
 fi
 
+if [[ -x "$ROOT/../plutus/scripts/install-sync-mise-cron.sh" ]]; then
+  echo "==> Mise media sync cron (every 6h)"
+  bash "$ROOT/../plutus/scripts/install-sync-mise-cron.sh" || true
+fi
+
 echo "==> Suite integration wired"
 echo "    dogfood: $DOGFOOD_EMAIL / (see MNEMOSYNE_DOGFOOD_PASSWORD in .env)"
-echo "    full loop: cd ~/ai-workspace/plutus && MNEMOSYNE_ALBUM_ID=<ready album> bash scripts/dogfood-suite-loop.sh 1"
+echo "    import:  bash scripts/import-mise-gallery.sh <gallery_id>"
+echo "    full loop: cd ~/ai-workspace/plutus && bash scripts/dogfood-suite-loop.sh 1"
