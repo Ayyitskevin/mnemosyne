@@ -109,9 +109,11 @@ def test_cost_report_breaks_down_by_stage(conn, monkeypatch):
     assert sum(s["calls"] for s in rep["stages"]) == rep["calls"]
 
 
-def test_cost_report_dollars_unknown_when_unpriced(conn):
+def test_cost_report_dollars_unknown_when_unpriced(conn, monkeypatch):
     # No rates configured: tokens are still ground truth, but every dollar reads
     # None (honest "unknown"), headline and per-stage alike.
+    monkeypatch.setattr(config, "GROK_PRICE_PROMPT_PER_M", 0.0)
+    monkeypatch.setattr(config, "GROK_PRICE_COMPLETION_PER_M", 0.0)
     aid = _album(conn)
     usage.record(conn, album_id=aid, photo_id=1, stage="vision", backend="grok",
                  model="m", tokens=_TOKENS, latency=0.3)

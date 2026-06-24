@@ -119,6 +119,7 @@ Think of it as five workstreams stacked so each one stands on the one below it.
 - `scripts/run-cogs-benchmark.sh` — one gallery through grok + `mnemosyne cost` report
 - `scripts/bootstrap-prod.sh` — validate → optional R2/URL → install service
 - `/healthz` storage probe (R2 credentials or local upload dir writable)
+- **Trust surface** — `/privacy` + `/terms` (no-training promise, tenant isolation); linked from landing + signup
 
 ---
 

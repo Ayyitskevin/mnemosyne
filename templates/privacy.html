@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy — mnemosyne</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; background: #0e0d0c; color: #e8e2d8;
+           font: 16px/1.65 -apple-system, Segoe UI, Roboto, sans-serif; }
+    .wrap { max-width: 680px; margin: 0 auto; padding: 3rem 1.5rem 4rem; }
+    a { color: #c9a86a; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    h1 { font-weight: 300; letter-spacing: .04em; font-size: 2rem; margin: 0 0 .3rem; }
+    .updated { color: #6f675b; font-size: .85rem; margin: 0 0 2rem; }
+    h2 { font-size: 1.05rem; font-weight: 600; color: #cfc6b8; margin: 1.8rem 0 .5rem; }
+    p, li { color: #cfc6b8; }
+    ul { padding-left: 1.2rem; }
+    li { margin: .35rem 0; }
+    .callout { border: 1px solid #2a2622; border-radius: 10px; padding: 1rem 1.1rem;
+               background: #15130f; margin: 1.5rem 0; }
+    .callout strong { color: #e8e2d8; }
+    footer { color: #6f675b; font-size: .85rem; margin-top: 2.5rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <p><a href="/">&larr; mnemosyne</a></p>
+    <h1>Privacy policy</h1>
+    <p class="updated">Last updated June 2026 · Draft for photographer review</p>
+
+    <div class="callout">
+      <strong>Short version:</strong> Your galleries are yours. We use them only to
+      draft your album. We do not train models on your images. Each account sees
+      only its own albums.
+    </div>
+
+    <h2>Who we are</h2>
+    <p>mnemosyne is an AI album-design tool for professional photographers. This
+      policy describes how we handle data when you use the waitlist, create an
+      account, or upload a gallery.</p>
+
+    <h2>What we collect</h2>
+    <ul>
+      <li><strong>Account data</strong> — email and a hashed password for sign-in.</li>
+      <li><strong>Waitlist</strong> — email address when you join early access.</li>
+      <li><strong>Galleries</strong> — image files you upload, plus metadata we derive
+        (dimensions, scene labels, layout choices) to build your album draft.</li>
+      <li><strong>Usage metering</strong> — token counts and inference costs per album
+        so we can price the service honestly (not the image bytes themselves).</li>
+    </ul>
+
+    <h2>How we use your photos</h2>
+    <p>Uploaded images are processed to analyze each shot (scene + hero-worthiness)
+      and to lay out spreads. That is the entire product. We do not sell your images,
+      use them in marketing, or add them to a training dataset.</p>
+
+    <h2>We do not train on your images</h2>
+    <p>mnemosyne does not fine-tune or train machine-learning models on your uploads.
+      In production, vision and layout run through a cloud inference API (currently
+      xAI/Grok) under API terms that do not use customer inputs to train their
+      models. We choose providers and configurations with that constraint in mind.</p>
+    <p>On local / dogfood setups, images may stay entirely on your own hardware
+      and never leave your network.</p>
+
+    <h2>Isolation &amp; access</h2>
+    <p>Every album belongs to one account. You cannot see another photographer's
+      galleries, and they cannot see yours. Share links are optional, time-limited
+      tokens you control — revoke or let them expire at any time.</p>
+
+    <h2>Storage &amp; retention</h2>
+    <p>Photos are stored under your account until you delete the album. Deleting an
+      album removes its database rows and stored image bytes. Backups, if any, follow
+      the same retention window as production data.</p>
+
+    <h2>Third parties</h2>
+    <ul>
+      <li><strong>Cloud inference</strong> — receives downscaled image derivatives
+        for analysis (not full-resolution marketing files unless you uploaded them).</li>
+      <li><strong>Object storage</strong> — when enabled, encrypted at rest in our
+        storage bucket (e.g. Cloudflare R2).</li>
+      <li><strong>Print cross-sell</strong> — if you attach a Plutus offer link, clients
+        who open your share page may follow that link to a separate print storefront.</li>
+    </ul>
+
+    <h2>Your choices</h2>
+    <ul>
+      <li>Delete albums (and their photos) from your account at any time.</li>
+      <li>Revoke share links before they expire.</li>
+      <li>Request account deletion by contacting us (feature coming; email for now).</li>
+    </ul>
+
+    <h2>Contact</h2>
+    <p>Questions about this policy: use the email you joined the waitlist with, or
+      reach out through the same channel we used to invite you to early access.</p>
+
+    <footer>
+      <a href="/terms">Terms of service</a> · <a href="/">Home</a>
+    </footer>
+  </div>
+</body>
+</html>

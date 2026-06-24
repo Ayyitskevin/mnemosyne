@@ -153,6 +153,18 @@ def landing(request: Request):
     return TEMPLATES.TemplateResponse(request, "landing.html", {})
 
 
+@app.get("/privacy", response_class=HTMLResponse)
+def privacy_policy(request: Request):
+    """Trust surface — how we handle galleries and the no-training promise."""
+    return TEMPLATES.TemplateResponse(request, "privacy.html", {})
+
+
+@app.get("/terms", response_class=HTMLResponse)
+def terms_of_service(request: Request):
+    """Trust surface — service terms (draft until billing ships)."""
+    return TEMPLATES.TemplateResponse(request, "terms.html", {})
+
+
 @app.post("/waitlist", response_class=HTMLResponse)
 def join_waitlist(
     request: Request,

@@ -36,6 +36,8 @@
     .error { color: #d99; margin: 0 0 .8rem; font-size: .95rem; }
     .fine { color: #6f675b; font-size: .8rem; margin-top: 1rem; }
     footer { color: #6f675b; font-size: .85rem; margin-top: 3rem; }
+    footer a { color: #9b9183; text-decoration: none; }
+    footer a:hover { color: #c9a86a; text-decoration: underline; }
     @media (max-width: 560px) { .ba { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -80,11 +82,15 @@
                  value="{{ email or '' }}" required autofocus>
           <button type="submit">Join the waitlist</button>
         </form>
-        <p class="fine">No spam. One email when it launches, nothing else.</p>
+        <p class="fine">No spam. One email when it launches, nothing else.
+          See our <a href="/privacy" style="color:#9b9183">privacy policy</a>.</p>
       {% endif %}
     </div>
 
-    <footer>mnemosyne · an AI album designer for photographers</footer>
+    <footer>
+      mnemosyne · an AI album designer for photographers<br>
+      <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a>
+    </footer>
   </div>
 </body>
 </html>
