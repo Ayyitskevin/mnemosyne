@@ -100,6 +100,11 @@ Think of it as five workstreams stacked so each one stands on the one below it.
    export, and (lightweight) a way to share/download the finished album. Mostly assembly once 1–4
    exist.
 
+**Shipped in-repo (partial Workstream 5):**
+- Share links with expiring client view + PDF download
+- `MNEMOSYNE_PUBLIC_URL` for pasteable share URLs behind a tunnel
+- Cloud-inference COGS on the album page and albums index (pairs with `mnemosyne cost` CLI)
+
 ---
 
 ## The data we add (kept as tiny as we can)

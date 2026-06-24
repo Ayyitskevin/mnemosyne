@@ -17,6 +17,13 @@
     a.album:hover { border-color: #6b5d49; background: #15130f; }
     .name { font-size: 1.15rem; }
     .meta { color: #9b9183; font-size: .9rem; margin-top: .2rem; }
+    .status { display: inline-block; font-size: .72rem; letter-spacing: .04em;
+              text-transform: uppercase; padding: .12rem .45rem; border-radius: 4px;
+              margin-left: .45rem; vertical-align: middle; }
+    .status-ready { background: #1a2a1f; color: #8fd4a0; }
+    .status-pending, .status-processing { background: #2a2418; color: #d8b25a; }
+    .status-failed { background: #2a1814; color: #d99; }
+    .cogs { color: #6f675b; font-size: .82rem; margin-top: .15rem; }
     .empty { color: #9b9183; border: 1px dashed #2a2622; border-radius: 10px;
              padding: 2rem; text-align: center; }
     .topbar { display: flex; justify-content: space-between; align-items: baseline;
@@ -52,8 +59,14 @@
     {% if albums %}
       {% for a in albums %}
         <a class="album" href="/albums/{{ a.id }}">
-          <div class="name">{{ a.name }}</div>
+          <div class="name">
+            {{ a.name }}
+            <span class="status status-{{ a.status }}">{{ a.status }}</span>
+          </div>
           <div class="meta">{{ a.photo_count }} photos · {{ a.spread_count }} spreads · {{ a.created_at }}</div>
+          {% if a.cogs and a.cogs.calls %}
+          <div class="cogs">cloud COGS: {{ a.cogs.calls }} call(s) · {{ a.cogs.total_tokens }} tok{% if a.cogs.cost_usd is not none %} · ${{ "%.4f"|format(a.cogs.cost_usd) }}{% endif %}</div>
+          {% endif %}
         </a>
       {% endfor %}
     {% else %}

@@ -57,14 +57,41 @@
     .share-exp { color: #9b9183; font-size: .78rem; }
     .share-hint { color: #6f675b; font-size: .78rem; margin-top: .5rem; }
     .share button.revoke { color: #c98b6b; }
+    .cogs { margin: 1rem 0 1.4rem; padding: .85rem 1rem; background: #12100d;
+            border: 1px solid #221f1b; border-radius: 6px; }
+    .cogs h3 { margin: 0 0 .45rem; font-size: .82rem; font-weight: 600;
+               letter-spacing: .06em; text-transform: uppercase; color: #9b9183; }
+    .cogs .sum { color: #cfc6b8; font-size: .92rem; }
+    .cogs table { width: 100%; margin-top: .55rem; border-collapse: collapse;
+                  font-size: .78rem; color: #9b9183; }
+    .cogs td { padding: .2rem 0; }
+    .cogs td:last-child { text-align: right; color: #cfc6b8; }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <a class="back" href="/">&larr; all albums</a>
+    <a class="back" href="/albums">&larr; all albums</a>
     <h1>{{ album.name }}</h1>
     <a class="back" href="/albums/{{ album.id }}/pdf">download PDF &darr;</a>
     <a class="back" href="/albums/{{ album.id }}/delete">&nbsp;·&nbsp; delete album</a>
+
+    {% if cost_report.calls > 0 %}
+    <div class="cogs">
+      <h3>Cloud inference COGS</h3>
+      <div class="sum">{{ cost_report.calls }} billed call(s) · {{ cost_report.total_tokens }} tokens · {{ cost_label }}</div>
+      {% if cost_report.stages %}
+      <table>
+        {% for st in cost_report.stages %}
+        <tr>
+          <td>{{ st.stage }}</td>
+          <td>{{ st.calls }} call(s) · {{ st.total_tokens }} tok</td>
+          <td>{% if st.cost_usd is not none %}${{ "%.4f"|format(st.cost_usd) }}{% else %}unpriced{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% endif %}
+    </div>
+    {% endif %}
 
     <div class="share">
       {% if share_url %}

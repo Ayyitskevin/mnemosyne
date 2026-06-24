@@ -44,6 +44,8 @@ from mnemosyne import (
     pipeline,
     share,
     storage,
+    urls,
+    usage,
     waitlist,
 )
 from mnemosyne.worker import AlbumWorker
@@ -229,10 +231,14 @@ def index(
     user: dict = Depends(require_user),
     conn: sqlite3.Connection = Depends(get_conn),
 ):
+    rows = albums.list_albums(conn, user["id"])
+    cogs = usage.summaries_for_albums(conn, [a["id"] for a in rows])
+    for row in rows:
+        row["cogs"] = cogs.get(row["id"])
     return TEMPLATES.TemplateResponse(
         request,
         "albums.html",
-        {"albums": albums.list_albums(conn, user["id"]), "user": user},
+        {"albums": rows, "user": user},
     )
 
 
@@ -357,14 +363,21 @@ def show_album(
     data = albums.album_for_render(conn, album_id, user["id"])
     # Hand the template a ready-to-copy absolute link when one is live, so the owner
     # can paste it to a client without us hardcoding the host.
-    share_url = None
+    share_link = None
     if data["album"].get("share_token"):
-        share_url = f"{str(request.base_url).rstrip('/')}/share/{data['album']['share_token']}"
+        share_link = urls.share_url(request, data["album"]["share_token"])
+    cost_report = usage.album_cost_report(conn, album_id)
     return TEMPLATES.TemplateResponse(
         request,
         "album.html",
-        {"album": data["album"], "spreads": data["spreads"], "user": user,
-         "share_url": share_url},
+        {
+            "album": data["album"],
+            "spreads": data["spreads"],
+            "user": user,
+            "share_url": share_link,
+            "cost_report": cost_report,
+            "cost_label": usage.format_cost(cost_report.get("cost_usd")),
+        },
     )
 
 

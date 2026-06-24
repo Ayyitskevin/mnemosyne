@@ -89,6 +89,40 @@ def album_summary(conn: sqlite3.Connection, album_id: int) -> dict:
     return _rollup(conn, album_id)
 
 
+def summaries_for_albums(
+    conn: sqlite3.Connection, album_ids: list[int]
+) -> dict[int, dict]:
+    """Roll up COGS for many albums in one query — for the albums index."""
+    if not album_ids:
+        return {}
+    placeholders = ",".join("?" * len(album_ids))
+    rows = conn.execute(
+        f"SELECT album_id, COUNT(*) AS calls, "
+        f"COALESCE(SUM(total_tokens), 0) AS total_tokens, "
+        f"SUM(cost_usd) AS cost_usd, COUNT(cost_usd) AS priced_calls "
+        f"FROM inference_usage WHERE album_id IN ({placeholders}) "
+        f"GROUP BY album_id",
+        tuple(album_ids),
+    ).fetchall()
+    out: dict[int, dict] = {}
+    for row in rows:
+        calls = row["calls"]
+        cost = row["cost_usd"] if calls and row["priced_calls"] == calls else None
+        out[row["album_id"]] = {
+            "calls": calls,
+            "total_tokens": row["total_tokens"],
+            "cost_usd": cost,
+        }
+    return out
+
+
+def format_cost(cost_usd: float | None) -> str:
+    """Human label for a dollar total — honest 'unpriced' when rates aren't set."""
+    if cost_usd is None:
+        return "unpriced"
+    return f"${cost_usd:.4f}"
+
+
 def album_cost_report(conn: sqlite3.Connection, album_id: int) -> dict:
     """Per-stage COGS breakdown plus the overall roll-up. The headline mirrors
     album_summary; `stages` shows where the tokens and dollars went — vision is one

@@ -15,6 +15,11 @@ load_dotenv()
 # The SQLite file mnemosyne stores everything in. Override with MNEMOSYNE_DB.
 DB_PATH = Path(os.environ.get("MNEMOSYNE_DB", "mnemosyne.db"))
 
+# Canonical public origin for client-facing links (share URLs). When mnemosyne
+# sits behind Cloudflare or a tunnel, set this to the hostname clients use —
+# otherwise share links fall back to request.base_url (fine for local dogfood).
+PUBLIC_URL = os.environ.get("MNEMOSYNE_PUBLIC_URL") or None
+
 # Signing key for the session cookie (Starlette SessionMiddleware). A logged-in
 # user's id rides in a cookie signed with this; rotating it logs everyone out.
 # In prod set MNEMOSYNE_SECRET_KEY to a fixed random value (in .env, off the repo)
