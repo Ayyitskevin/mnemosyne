@@ -23,6 +23,38 @@ PUBLIC_URL = os.environ.get("MNEMOSYNE_PUBLIC_URL") or None
 # Optional Plutus SaaS base for print cross-sell (e.g. https://plutus.kleephotography.com).
 # Albums can store a full offer URL or a /store/{slug}/offer/{token} path.
 PLUTUS_URL = os.environ.get("MNEMOSYNE_PLUTUS_URL") or None
+PLUTUS_API_TOKEN = os.environ.get("MNEMOSYNE_PLUTUS_API_TOKEN") or None
+
+# Stripe billing — off until STRIPE_ENABLED=true and keys are set (commitment-class).
+STRIPE_ENABLED = os.environ.get("MNEMOSYNE_STRIPE_ENABLED", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+}
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY") or os.environ.get(
+    "MNEMOSYNE_STRIPE_SECRET_KEY"
+)
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET") or os.environ.get(
+    "MNEMOSYNE_STRIPE_WEBHOOK_SECRET"
+)
+STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID") or os.environ.get(
+    "MNEMOSYNE_STRIPE_PRICE_ID"
+)
+_public = (PUBLIC_URL or "http://localhost:8000").rstrip("/")
+STRIPE_SUCCESS_URL = os.environ.get("MNEMOSYNE_STRIPE_SUCCESS_URL") or f"{_public}/billing?success=1"
+STRIPE_CANCEL_URL = os.environ.get("MNEMOSYNE_STRIPE_CANCEL_URL") or f"{_public}/billing?canceled=1"
+STRIPE_PORTAL_RETURN_URL = os.environ.get(
+    "MNEMOSYNE_STRIPE_PORTAL_RETURN_URL"
+) or f"{_public}/billing"
+
+# Password reset — log reset links when unset (dogfood only).
+SMTP_URL = os.environ.get("MNEMOSYNE_SMTP_URL") or None
+DEV_RESET_LINKS = os.environ.get("MNEMOSYNE_DEV_RESET_LINKS", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+}
+RESET_TOKEN_TTL_HOURS = int(os.environ.get("MNEMOSYNE_RESET_TOKEN_TTL_HOURS") or 24)
 
 # Signing key for the session cookie (Starlette SessionMiddleware). A logged-in
 # user's id rides in a cookie signed with this; rotating it logs everyone out.

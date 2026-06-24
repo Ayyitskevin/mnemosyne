@@ -120,6 +120,11 @@ Think of it as five workstreams stacked so each one stands on the one below it.
 - `scripts/bootstrap-prod.sh` — validate → optional R2/URL → install service
 - `/healthz` storage probe (R2 credentials or local upload dir writable)
 - **Trust surface** — `/privacy` + `/terms` (no-training promise, tenant isolation); linked from landing + signup
+- **Deploy packaging** — `Dockerfile`, `docker-compose.yml`, `fly.toml`
+- **Account lifecycle** — password reset, account delete (`/account`)
+- **Stripe scaffold** — `billing.py` + checkout/portal/webhook routes (`MNEMOSYNE_STRIPE_ENABLED`, off by default)
+- **Plutus auto-link** — `POST /albums/{id}/plutus-generate` via Plutus API (`MNEMOSYNE_PLUTUS_API_TOKEN`)
+- **MinIO wire** — `scripts/wire-minio.sh` for local S3-compatible storage dogfood
 
 ---
 

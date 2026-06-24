@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>mnemosyne — billing</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; background: #0e0d0c; color: #e8e2d8;
+           font: 16px/1.6 -apple-system, Segoe UI, Roboto, sans-serif; }
+    .wrap { max-width: 520px; margin: 0 auto; padding: 3rem 1.5rem; }
+    a { color: #c9a86a; text-decoration: none; }
+    h1 { font-weight: 300; margin: 0 0 1rem; }
+    .card { border: 1px solid #2a2622; border-radius: 10px; padding: 1.2rem 1.3rem;
+            background: #15130f; margin: 1rem 0; }
+    .status { color: #9b9183; }
+    button { background: #c9a86a; color: #1a160f; border: 0; border-radius: 8px;
+             padding: .65rem 1.2rem; font-weight: 600; cursor: pointer; margin-top: .8rem; }
+    .notice { color: #9bbf8a; margin-bottom: 1rem; }
+    .warn { color: #d8b25a; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <p><a href="/albums">&larr; albums</a></p>
+    <h1>Billing</h1>
+    {% if request.query_params.get('success') %}<p class="notice">Subscription updated — thank you.</p>{% endif %}
+    {% if request.query_params.get('canceled') %}<p class="warn">Checkout canceled.</p>{% endif %}
+    <div class="card">
+      <p class="status">Plan status: <strong>{{ billing.status }}</strong></p>
+      {% if not billing.enabled %}
+        <p>Billing is not enabled on this host yet.</p>
+      {% elif billing.can_subscribe %}
+        <p>Subscribe to design albums on cloud inference.</p>
+        <form method="post" action="/billing/checkout"><button type="submit">Subscribe</button></form>
+      {% elif billing.can_manage %}
+        <p>Manage payment method or cancel via the Stripe portal.</p>
+        <form method="post" action="/billing/portal"><button type="submit">Manage subscription</button></form>
+      {% else %}
+        <p>Your account is active.</p>
+      {% endif %}
+    </div>
+  </div>
+</body>
+</html>

@@ -13,7 +13,9 @@ import hashlib
 import hmac
 import secrets
 import sqlite3
+from datetime import datetime, timedelta, timezone
 
+from mnemosyne import config
 from mnemosyne.waitlist import is_valid_email, normalize_email
 
 # OWASP's floor for pbkdf2-HMAC-SHA256 is ~600k iterations (2023+). Stored inside
@@ -82,6 +84,68 @@ def get_user_by_email(conn: sqlite3.Connection, email: str) -> dict | None:
 def get_user_by_id(conn: sqlite3.Connection, user_id: int) -> dict | None:
     row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
     return dict(row) if row else None
+
+
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def request_password_reset(conn: sqlite3.Connection, email: str) -> str | None:
+    """Create a reset token for a registered email. Returns the raw token when
+    the user exists (caller handles delivery); None when unknown — same outward UX."""
+    user = get_user_by_email(conn, email)
+    if user is None:
+        return None
+    raw = secrets.token_urlsafe(32)
+    expires = datetime.now(timezone.utc) + timedelta(hours=config.RESET_TOKEN_TTL_HOURS)
+    conn.execute(
+        "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)",
+        (user["id"], _hash_token(raw), expires.isoformat()),
+    )
+    conn.commit()
+    return raw
+
+
+def reset_password(conn: sqlite3.Connection, token: str, new_password: str) -> bool:
+    if not new_password:
+        return False
+    row = conn.execute(
+        "SELECT id, user_id, expires_at, used_at FROM password_reset_tokens "
+        "WHERE token_hash = ?",
+        (_hash_token(token),),
+    ).fetchone()
+    if row is None or row["used_at"]:
+        return False
+    expires = datetime.fromisoformat(row["expires_at"].replace("Z", "+00:00"))
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) > expires:
+        return False
+    conn.execute(
+        "UPDATE users SET password_hash = ? WHERE id = ?",
+        (hash_password(new_password), row["user_id"]),
+    )
+    conn.execute(
+        "UPDATE password_reset_tokens SET used_at = datetime('now') WHERE id = ?",
+        (row["id"],),
+    )
+    conn.commit()
+    return True
+
+
+def delete_user(conn: sqlite3.Connection, user_id: int, delete_albums_fn) -> bool:
+    """Delete every album then the user row. delete_albums_fn is pipeline.delete_album."""
+    rows = conn.execute(
+        "SELECT id, status FROM albums WHERE owner_id = ?", (user_id,)
+    ).fetchall()
+    for row in rows:
+        if row["status"] in {"pending", "processing"}:
+            return False
+    for row in rows:
+        delete_albums_fn(conn, row["id"])
+    cur = conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    conn.commit()
+    return cur.rowcount == 1
 
 
 def authenticate(conn: sqlite3.Connection, email: str, password: str) -> dict | None:

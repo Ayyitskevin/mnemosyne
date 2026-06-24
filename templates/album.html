@@ -162,6 +162,16 @@
       {% if album.plutus_offer_url %}
         <div class="current">Offer link: <a href="{{ album.plutus_offer_url }}" style="color:#d8b25a">{{ album.plutus_offer_url }}</a></div>
       {% endif %}
+      {% if plutus_api_configured %}
+      <form method="post" action="/albums/{{ album.id }}/plutus-generate" style="margin-bottom:.6rem">
+        <input type="number" name="plutus_run_id" min="1" step="1" required
+               placeholder="Plutus bundles run id"
+               style="width:100%;box-sizing:border-box;background:#0e0d0c;color:#e8e2d8;
+                      border:1px solid #2a2620;border-radius:4px;padding:.45rem .55rem;
+                      font:.8rem/1.3 ui-monospace,monospace;margin-bottom:.45rem">
+        <button type="submit">generate offer from Plutus run</button>
+      </form>
+      {% endif %}
       <form method="post" action="/albums/{{ album.id }}/plutus-link">
         <input type="text" name="plutus_offer_url"
                value="{{ album.plutus_offer_url or '' }}"
@@ -169,8 +179,9 @@
         <button type="submit">save offer link</button>
       </form>
       <div class="hint">
-        Paste a Plutus publish URL so share-view clients can order prints.
-        {% if not plutus_configured %}Set <code>MNEMOSYNE_PLUTUS_URL</code> to accept path-only links.{% endif %}
+        {% if plutus_api_configured %}Enter a Plutus bundles run id to mint a link, or paste a publish URL manually.
+        {% else %}Paste a Plutus publish URL so share-view clients can order prints.{% endif %}
+        {% if not plutus_configured %} Set <code>MNEMOSYNE_PLUTUS_URL</code> for path-only links.{% endif %}
       </div>
     </div>
 

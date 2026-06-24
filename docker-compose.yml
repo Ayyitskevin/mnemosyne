@@ -1,0 +1,13 @@
+services:
+  mnemosyne:
+    build: .
+    ports:
+      - "${MNEMOSYNE_PORT:-8000}:8000"
+    env_file:
+      - .env
+    volumes:
+      - mnemosyne-data:/data
+    restart: unless-stopped
+
+volumes:
+  mnemosyne-data:

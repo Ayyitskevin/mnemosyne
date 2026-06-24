@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import hashlib
+import logging
 import os
 import secrets
 import tempfile
@@ -37,12 +38,14 @@ from starlette.middleware.sessions import SessionMiddleware
 from mnemosyne import (
     albums,
     auth,
+    billing,
     config,
     db,
     edits,
     export,
     ingest,
     pipeline,
+    plutus_api,
     plutus_link,
     runtime,
     share,
@@ -52,6 +55,8 @@ from mnemosyne import (
     usage,
     waitlist,
 )
+
+log = logging.getLogger("mnemosyne.main")
 from mnemosyne.worker import AlbumWorker
 
 TEMPLATES = Jinja2Templates(
@@ -249,6 +254,140 @@ def logout(request: Request):
     return RedirectResponse("/", status_code=303)
 
 
+@app.get("/forgot-password", response_class=HTMLResponse)
+def forgot_password_form(request: Request):
+    return TEMPLATES.TemplateResponse(request, "forgot_password.html", {})
+
+
+@app.post("/forgot-password", response_class=HTMLResponse)
+def forgot_password(
+    request: Request,
+    email: str = Form(...),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    raw = auth.request_password_reset(conn, email)
+    dev_link = None
+    if raw and config.DEV_RESET_LINKS:
+        base = urls.public_base(request)
+        dev_link = f"{base}/reset-password?token={raw}"
+        log.info("password reset link for %s: %s", email, dev_link)
+    return TEMPLATES.TemplateResponse(
+        request,
+        "forgot_password.html",
+        {"sent": True, "dev_link": dev_link},
+    )
+
+
+@app.get("/reset-password", response_class=HTMLResponse)
+def reset_password_form(request: Request, token: str = ""):
+    if not token:
+        return RedirectResponse("/forgot-password", status_code=303)
+    return TEMPLATES.TemplateResponse(
+        request, "reset_password.html", {"token": token}
+    )
+
+
+@app.post("/reset-password", response_class=HTMLResponse)
+def reset_password(
+    request: Request,
+    token: str = Form(...),
+    password: str = Form(...),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    if not auth.reset_password(conn, token, password):
+        return TEMPLATES.TemplateResponse(
+            request,
+            "reset_password.html",
+            {"token": token, "error": "Invalid or expired reset link."},
+        )
+    return RedirectResponse("/login", status_code=303)
+
+
+@app.get("/account", response_class=HTMLResponse)
+def account_page(request: Request, user: dict = Depends(require_user)):
+    return TEMPLATES.TemplateResponse(
+        request, "account.html", {"user": user}
+    )
+
+
+@app.post("/account/delete")
+def delete_account(
+    request: Request,
+    password: str = Form(...),
+    user: dict = Depends(require_user),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    row = auth.get_user_by_id(conn, user["id"])
+    if row is None or not auth.verify_password(password, row["password_hash"]):
+        return TEMPLATES.TemplateResponse(
+            request,
+            "account.html",
+            {"user": user, "error": "Password incorrect."},
+        )
+    if not auth.delete_user(conn, user["id"], pipeline.delete_album):
+        return TEMPLATES.TemplateResponse(
+            request,
+            "account.html",
+            {
+                "user": user,
+                "error": "Could not delete — wait for in-flight albums to finish.",
+            },
+        )
+    request.session.clear()
+    return RedirectResponse("/", status_code=303)
+
+
+@app.get("/billing", response_class=HTMLResponse)
+def billing_page(request: Request, user: dict = Depends(require_user)):
+    return TEMPLATES.TemplateResponse(
+        request,
+        "billing.html",
+        {"user": user, "billing": billing.billing_view(user)},
+    )
+
+
+@app.post("/billing/checkout")
+def billing_checkout(
+    user: dict = Depends(require_user),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    try:
+        session = billing.create_checkout_session(conn, user)
+    except billing.BillingError as exc:
+        return RedirectResponse(
+            f"/billing?error={quote_plus(str(exc)[:80])}", status_code=303
+        )
+    return RedirectResponse(session["checkout_url"], status_code=303)
+
+
+@app.post("/billing/portal")
+def billing_portal(
+    user: dict = Depends(require_user),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    try:
+        portal = billing.create_portal_session(conn, user)
+    except billing.BillingError as exc:
+        return RedirectResponse(
+            f"/billing?error={quote_plus(str(exc)[:80])}", status_code=303
+        )
+    return RedirectResponse(portal["portal_url"], status_code=303)
+
+
+@app.post("/webhooks/stripe")
+async def stripe_webhook(
+    request: Request, conn: sqlite3.Connection = Depends(get_conn)
+):
+    if not billing.billing_enabled():
+        raise HTTPException(status_code=404, detail="billing disabled")
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature")
+    if not billing.verify_webhook_signature(payload, sig):
+        raise HTTPException(status_code=400, detail="bad signature")
+    billing.handle_webhook(conn, payload)
+    return {"ok": True}
+
+
 @app.get("/albums", response_class=HTMLResponse)
 def index(
     request: Request,
@@ -341,6 +480,8 @@ def create_album(
     """Create an album from a browser upload: save verified photos, enqueue the
     background album job, then redirect to the status page. Validation lives here,
     at the public boundary, before any upload becomes worker input."""
+    if not billing.upload_allowed(user):
+        return RedirectResponse("/billing", status_code=303)
     real = [f for f in photos if f.filename]
     if len(real) > config.MAX_ALBUM_UPLOAD:
         return TEMPLATES.TemplateResponse(
@@ -426,6 +567,7 @@ def show_album(
             "plutus_saved": request.query_params.get("plutus_saved") == "1",
             "plutus_error": request.query_params.get("plutus_error"),
             "plutus_configured": bool(config.PLUTUS_URL),
+            "plutus_api_configured": plutus_api.configured(),
         },
     )
 
@@ -602,6 +744,31 @@ def photo_file(
 
 
 # --- share links: an owner hands a finished album to someone with no account -----
+
+
+@app.post("/albums/{album_id}/plutus-generate")
+def generate_plutus_offer(
+    album_id: int,
+    plutus_run_id: int = Form(...),
+    user: dict = Depends(require_user),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    """Mint a Plutus storefront offer from a bundles run id via API."""
+    _require_owned_album(conn, album_id, user)
+    try:
+        offer = plutus_api.create_offer_url(
+            run_id=plutus_run_id,
+            label=conn.execute(
+                "SELECT name FROM albums WHERE id = ?", (album_id,)
+            ).fetchone()["name"],
+        )
+        plutus_link.save_offer_url(conn, album_id, user["id"], offer)
+    except (plutus_api.PlutusApiError, TypeError, ValueError) as exc:
+        return RedirectResponse(
+            f"/albums/{album_id}?plutus_error={quote_plus(str(exc)[:120])}",
+            status_code=303,
+        )
+    return RedirectResponse(f"/albums/{album_id}?plutus_saved=1", status_code=303)
 
 
 @app.post("/albums/{album_id}/plutus-link")

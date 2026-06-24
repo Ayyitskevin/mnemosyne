@@ -59,6 +59,7 @@
       {% if user %}
         <div class="who">
           {{ user.email }}
+          <a href="/account" style="color:#9b9183;text-decoration:none;margin-right:.6rem">account</a>
           <form method="post" action="/logout">
             <button type="submit">log out</button>
           </form>

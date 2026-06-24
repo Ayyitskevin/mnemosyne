@@ -1,0 +1,23 @@
+app = "mnemosyne"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  MNEMOSYNE_HOST = "0.0.0.0"
+  MNEMOSYNE_PORT = "8000"
+  MNEMOSYNE_DB = "/data/mnemosyne.db"
+  MNEMOSYNE_UPLOAD_DIR = "/data/uploads"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[mounts]]
+  source = "mnemosyne_data"
+  destination = "/data"
+  initial_size = "1gb"
