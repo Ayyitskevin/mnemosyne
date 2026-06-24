@@ -59,3 +59,34 @@ def test_webhook_marks_user_active(conn, monkeypatch):
     ).fetchone()
     assert row["billing_status"] == "active"
     assert row["stripe_customer_id"] == "cus_123"
+
+
+def _sign(payload: bytes, ts: int, secret: bytes = b"whsec_test") -> str:
+    import hashlib
+    import hmac
+
+    signed = f"{ts}.{payload.decode()}".encode()
+    digest = hmac.new(secret, signed, hashlib.sha256).hexdigest()
+    return f"t={ts},v1={digest}"
+
+
+def test_webhook_rejects_replayed_stale_signature(monkeypatch):
+    """A correctly-signed event from too long ago must be refused: the signature
+    proves Stripe sent it once, not that it's fresh, so without a timestamp window
+    a captured webhook could be replayed forever."""
+    import time
+
+    monkeypatch.setattr(config, "STRIPE_WEBHOOK_SECRET", "whsec_test")
+    payload = json.dumps({"type": "checkout.session.completed", "data": {"object": {}}}).encode()
+
+    stale_ts = int(time.time()) - billing.WEBHOOK_TOLERANCE_SECONDS - 60
+    assert billing.verify_webhook_signature(payload, _sign(payload, stale_ts)) is False
+
+    fresh_ts = int(time.time())
+    assert billing.verify_webhook_signature(payload, _sign(payload, fresh_ts)) is True
+
+
+def test_webhook_rejects_nonnumeric_timestamp(monkeypatch):
+    monkeypatch.setattr(config, "STRIPE_WEBHOOK_SECRET", "whsec_test")
+    payload = b'{"type":"x"}'
+    assert billing.verify_webhook_signature(payload, "t=notanumber,v1=deadbeef") is False
