@@ -15,6 +15,8 @@ from mnemosyne import config, storage
 
 @pytest.fixture(autouse=True)
 def _isolate_storage(tmp_path, monkeypatch):
+    # .env may point at MinIO/R2 for prod dogfood — tests always use local disk.
+    monkeypatch.setattr(config, "STORAGE_BACKEND", "local")
     monkeypatch.setattr(config, "UPLOAD_DIR", tmp_path / "uploads")
     storage._instance = None
     yield

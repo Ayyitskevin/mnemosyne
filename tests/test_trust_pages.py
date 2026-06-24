@@ -23,6 +23,8 @@ def test_terms_page_is_public_and_links_privacy():
 def test_landing_footer_links_trust_pages():
     r = TestClient(app).get("/")
     assert r.status_code == 200
+    assert 'href="/signup"' in r.text
+    assert 'href="/login"' in r.text
     assert 'href="/privacy"' in r.text
     assert 'href="/terms"' in r.text
 

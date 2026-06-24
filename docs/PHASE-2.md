@@ -125,6 +125,13 @@ Think of it as five workstreams stacked so each one stands on the one below it.
 - **Stripe scaffold** — `billing.py` + checkout/portal/webhook routes (`MNEMOSYNE_STRIPE_ENABLED`, off by default)
 - **Plutus auto-link** — `POST /albums/{id}/plutus-generate` via Plutus API (`MNEMOSYNE_PLUTUS_API_TOKEN`)
 - **MinIO wire** — `scripts/wire-minio.sh` for local S3-compatible storage dogfood
+- **Dogfood kit** — `scripts/dogfood-invite.sh` (tailnet invite + signup URLs)
+- **Fly deploy** — `scripts/deploy-fly.sh` (after `flyctl auth login` + real R2 creds)
+
+**Dogfood / deploy gates (operator):**
+1. `sudo tailscale set --operator=$USER` then `bash scripts/wire-public-url.sh --tailscale` (HTTPS share links)
+2. Invite photographer via Tailscale admin → share output of `scripts/dogfood-invite.sh`
+3. For public cloud: `R2_ACCOUNT_ID=… R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… bash scripts/wire-r2.sh` then `flyctl auth login` + `bash scripts/deploy-fly.sh`
 
 ---
 
