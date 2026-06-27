@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "jsonschema"]  # jsonschema: validate emitted proposals against docs/proposal.schema.json in tests (dev/CI only, not runtime)
 r2 = ["boto3"]
 prod = ["boto3"]
 
