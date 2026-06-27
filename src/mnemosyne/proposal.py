@@ -19,11 +19,13 @@ densifies both — it maps the album's ordered spreads to 0..k-1 and each spread
 ordered slots to 0..m-1 — so the emitted indices are contiguous and collision-free
 regardless of any gaps left by manual nudges.
 
-`asset_id` references the gallery's asset id. Until the Mise-asset-id mapping lands
-(it rides on `photos.mise_asset_id`, a follow-up PR), this is Mnemosyne's local
-`photos.id`; the single `_ASSET_ID_COLUMN` chokepoint below is the one line that
-changes when that column exists, so the rest of the contract surface is already
-shaped for it.
+`asset_id` references the gallery's asset id, and a proposal uses ONE id space
+throughout — mixing them could let a local id collide with another photo's Mise id
+and read as a duplicate placement. So when every photo in the album carries Mise's
+id (`photos.mise_asset_id`), the proposal reports those; otherwise (upload albums,
+legacy rows, or a Mise import only partially matched) it reports the local
+`photos.id` for the whole album. `_use_mise_ids` decides once and both the
+serializer and the eligibility set read the same choice.
 """
 from __future__ import annotations
 
@@ -31,10 +33,24 @@ import sqlite3
 
 from mnemosyne import runtime
 
-# The photos column the proposal reports as `asset_id`. Today the local row id;
-# a follow-up PR adds `photos.mise_asset_id` and flips this to
-# "COALESCE(mise_asset_id, id)" so a placement references Mise's id space.
-_ASSET_ID_COLUMN = "id"
+
+def _use_mise_ids(conn: sqlite3.Connection, album_id: int) -> bool:
+    """True when EVERY photo in the album carries a Mise asset id, so the whole
+    proposal can safely report Mise's id space. Falls to local ids otherwise, which
+    keeps a single, collision-free id space rather than mixing the two."""
+    row = conn.execute(
+        "SELECT COUNT(*) AS total, COUNT(mise_asset_id) AS with_mise "
+        "FROM photos WHERE album_id = ?",
+        (album_id,),
+    ).fetchone()
+    return row["total"] > 0 and row["with_mise"] == row["total"]
+
+
+def _asset_id_col(use_mise: bool, prefix: str = "") -> str:
+    """The column the proposal reports as `asset_id` — Mise's id when the whole
+    album is Mise-mapped (guaranteed non-NULL then), else the local row id. `prefix`
+    is the table alias (e.g. "p.") when the query joins photos under one."""
+    return f"{prefix}mise_asset_id" if use_mise else f"{prefix}id"
 
 
 class ProposalError(Exception):
@@ -114,8 +130,9 @@ def eligible_asset_ids(conn: sqlite3.Connection, album_id: int) -> set[int]:
     (upload) album this is every photo in the album that the look step has scored —
     i.e. processed/ready, mirroring Mise's eligibility. (The Mise-import path will
     narrow this to Mise's own processed set once per-asset signals are read.)"""
+    col = _asset_id_col(_use_mise_ids(conn, album_id))
     rows = conn.execute(
-        f"SELECT {_ASSET_ID_COLUMN} AS asset_id FROM photos "
+        f"SELECT {col} AS asset_id FROM photos "
         "WHERE album_id = ? AND scene IS NOT NULL",
         (album_id,),
     ).fetchall()
@@ -138,10 +155,11 @@ def build_proposal(
         (album_id,),
     ).fetchall()
 
+    col = _asset_id_col(_use_mise_ids(conn, album_id), "p.")
     placements: list[dict] = []
     for spread_idx, spread in enumerate(spread_rows):
         photo_rows = conn.execute(
-            f"SELECT p.{_ASSET_ID_COLUMN} AS asset_id FROM placements pl "
+            f"SELECT {col} AS asset_id FROM placements pl "
             "JOIN photos p ON p.id = pl.photo_id "
             "WHERE pl.spread_id = ? ORDER BY pl.slot, pl.id",
             (spread["id"],),

@@ -54,14 +54,20 @@ indices are contiguous and collision-free even after manual nudges.
 
 - **Gallery** — the album already records its source gallery as
   `albums.mise_gallery_id`; that scopes the proposal.
-- **Asset id** — `asset_id` is the gallery's asset id. Today, for standalone
-  (upload) albums, this is Mnemosyne's local `photos.id`; the
-  `_ASSET_ID_COLUMN` chokepoint in `proposal.py` is the single line that switches
-  it to Mise's per-asset id once `photos.mise_asset_id` is populated at import.
-- **Signals** — Mnemosyne consumes the gallery's per-photo `hero_potential` /
-  `keeper_score` that Mise already stores, rather than recomputing vision or
-  duplicating originals. (The signal-read path is a follow-up to this contract
-  surface; until then the standalone path scores photos locally.)
+- **Asset id** — `asset_id` is the gallery's asset id. A Mise-imported photo carries
+  Mise's id in `photos.mise_asset_id`, so the proposal reports
+  `COALESCE(mise_asset_id, id)` — Mise's id space when known, the local `photos.id`
+  for upload albums and legacy rows. The `_asset_id_sql` chokepoint in `proposal.py`
+  is the single place that mapping lives.
+- **Signals** — for a Mise import, `mise_import.apply_mise_signals` reads the
+  gallery's per-photo `hero_potential` / `keeper_score` that Mise already stores
+  (`mise_client.list_assets`) and stamps them onto the photo rows before the look
+  step. Where Mise supplies a complete signal (a scene label **and** a
+  hero_potential), the look step skips the photo entirely — Mise's score is
+  consumed, not recomputed. Where the signal is partial or Mise is unreachable,
+  vision scores that photo locally, so a build never fails for want of a signal. The
+  per-asset endpoint is `MNEMOSYNE_MISE_ASSETS_PATH` (the one knob to retarget if
+  Mise's route/field names differ); the client is tolerant of the response shape.
 
 ## Provenance & cost
 
