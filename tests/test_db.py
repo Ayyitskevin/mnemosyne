@@ -7,6 +7,39 @@ import time
 from mnemosyne import db
 
 
+def test_connect_tolerates_an_open_write_lock(tmp_path):
+    """Reproduce the concurrent-startup flake deterministically: a second connection
+    must open even while another holds a write lock. The old code issued
+    `PRAGMA journal_mode = WAL` unconditionally on every connect, which needs an
+    exclusive moment and raised 'database is locked' against the held lock; connect
+    now reads the mode and skips the switch once WAL is already set, so it doesn't
+    fight for that lock."""
+    db_path = tmp_path / "app.db"
+    holder = db.connect(db_path)            # establishes WAL on the fresh file
+    holder.execute("CREATE TABLE t (id INTEGER)")
+    holder.commit()
+    holder.execute("BEGIN IMMEDIATE")       # hold a writer lock for the whole test
+    holder.execute("INSERT INTO t VALUES (1)")
+    try:
+        started = time.monotonic()
+        other = db.connect(db_path)         # must NOT block on / fail against the lock
+        elapsed = time.monotonic() - started
+        other.close()
+        assert elapsed < 2.0, f"connect blocked on the write lock ({elapsed:.2f}s)"
+    finally:
+        holder.rollback()
+        holder.close()
+
+
+def test_connect_sets_wal_and_foreign_keys(tmp_path):
+    conn = db.connect(tmp_path / "a.db")
+    try:
+        assert conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
+        assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
 def test_migrate_serializes_concurrent_startups(tmp_path, monkeypatch):
     """Two app worker processes can boot at the same time. The loser should wait
     for the winner's migration transaction, then observe the migration as already
