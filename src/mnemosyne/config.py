@@ -187,10 +187,11 @@ GROK_VISION_MODEL = os.environ.get("MNEMOSYNE_GROK_VISION_MODEL", "grok-4.20-non
 VISION_BACKEND = os.environ.get("MNEMOSYNE_VISION_BACKEND")
 
 # The arrange (reasoning) step's backend, mirroring the vision selector: "grok"
-# routes the layout call to xAI's cloud API; unset/anything else stays on local
-# Ollama (config.ARRANGE_MODEL). A real cloud host has no Ollama, so this is how
-# arrange runs there — and like vision it is OPT-IN so the local dogfood path is
-# never silently swapped for a billed call.
+# routes the layout call to xAI's cloud API; "deterministic" lays the album out with
+# the in-repo curate engine (arc-sequenced + paced from the stored hero/keeper
+# signals, no model, fully reproducible); unset/anything else stays on local Ollama
+# (config.ARRANGE_MODEL). A real cloud host has no Ollama, so this is how arrange runs
+# there — and like vision it is OPT-IN, so the existing path is never silently swapped.
 ARRANGE_BACKEND = os.environ.get("MNEMOSYNE_ARRANGE_BACKEND")
 # The grok model for the arrange call. Layout is a judgment task (Rule 5), so the
 # cheaper non-reasoning variant fits — no reasoning-token bill for a JSON layout.
