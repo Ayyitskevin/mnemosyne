@@ -5,6 +5,13 @@ story order, groups them into two-page spreads, and names one hero per spread.
 A local reasoning model does the creative call; a deterministic fallback covers
 the case where the model returns unusable JSON, so the show station always has a
 complete album to render (every photo placed exactly once).
+
+There is also a fully deterministic LAYOUT ENGINE (curate.py): set
+MNEMOSYNE_ARRANGE_BACKEND=deterministic to lay out the album with no model at all —
+arc-sequenced, hero-covered, variably paced from the stored hero/keeper signals.
+It's opt-in so the existing model path is the default, and its output is checked to
+place every photo exactly once before it's committed (Rule: the engine proposes,
+code still verifies).
 """
 from __future__ import annotations
 
@@ -17,7 +24,7 @@ import urllib.request
 
 import httpx2 as httpx
 
-from mnemosyne import config, usage
+from mnemosyne import config, curate, usage
 from mnemosyne.themes import arrange_system
 
 
@@ -181,13 +188,26 @@ def _fallback(photos: list[dict], per_spread: int = 3) -> list[dict]:
     return spreads
 
 
+def _engine_layout(photos: list[dict], *, theme: str) -> list[dict]:
+    """Lay the album out with the deterministic curate engine — arc-sequenced,
+    hero-covered, variably paced from the stored hero/keeper signals. Places every
+    photo once (no cull in the live path: keeper_floor 0), returning the same
+    spreads shape (`{"photos": [...], "hero": id}`) the model/repair path produces."""
+    return curate.mnemosyne_layout(photos, theme=theme)["spreads"]
+
+
+def _places_every_photo_once(layout: list[dict], photos: list[dict]) -> bool:
+    placed = [pid for s in layout for pid in s["photos"]]
+    return sorted(placed) == sorted(p["id"] for p in photos)
+
+
 def arrange_album(conn: sqlite3.Connection, album_id: int) -> int:
     """Lay out the album; return the number of spreads. Replaces any prior layout
     for this album so re-running is safe."""
     photos = [
         dict(r)
         for r in conn.execute(
-            "SELECT id, scene, hero_score, width, height FROM photos "
+            "SELECT id, scene, hero_score, keeper_score, width, height FROM photos "
             "WHERE album_id = ? ORDER BY id",
             (album_id,),
         ).fetchall()
@@ -199,13 +219,28 @@ def arrange_album(conn: sqlite3.Connection, album_id: int) -> int:
         "SELECT gallery_theme FROM albums WHERE id = ?", (album_id,)
     ).fetchone()
     theme = (theme_row["gallery_theme"] if theme_row else None) or "food"
-    layout, usage_meta = _ask_model(photos, theme=theme)
-    if layout is None:
-        print(
-            "arrange: reasoning model returned no usable layout — using "
-            "deterministic fallback (album will be in ingest order, not story order)",
-            file=sys.stderr,
-        )
+
+    if (config.ARRANGE_BACKEND or "").strip().lower() == "deterministic":
+        # No model: the engine lays it out from the signals, reproducibly.
+        layout, usage_meta = _engine_layout(photos, theme=theme), None
+    else:
+        layout, usage_meta = _ask_model(photos, theme=theme)
+
+    # Verify at the source — never commit a layout that drops or duplicates a photo,
+    # whichever path produced it. A bad/empty one falls back to the safe chunker.
+    if layout is None or not _places_every_photo_once(layout, photos):
+        if layout is not None:
+            print(
+                "arrange: layout did not place every photo exactly once — using "
+                "deterministic fallback",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "arrange: reasoning model returned no usable layout — using "
+                "deterministic fallback (album will be in ingest order, not story order)",
+                file=sys.stderr,
+            )
         layout = _fallback(photos)
 
     # Meter the call if it was a billed cloud one (local Ollama returns no usage).

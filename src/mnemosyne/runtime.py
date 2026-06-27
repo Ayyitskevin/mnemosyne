@@ -18,8 +18,11 @@ def vision_backend() -> str:
 
 
 def arrange_backend() -> str:
-    if (config.ARRANGE_BACKEND or "").strip().lower() == "grok":
+    backend = (config.ARRANGE_BACKEND or "").strip().lower()
+    if backend == "grok":
         return "grok"
+    if backend == "deterministic":
+        return "deterministic"
     return "ollama"
 
 
@@ -54,6 +57,8 @@ def _vision_model_label(backend: str) -> str:
 def _arrange_model_label(backend: str) -> str:
     if backend == "grok":
         return config.GROK_ARRANGE_MODEL
+    if backend == "deterministic":
+        return "deterministic-v1"
     return config.ARRANGE_MODEL
 
 
