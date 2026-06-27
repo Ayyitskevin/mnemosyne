@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mnemosyne.kleephotography.com/schemas/proposal.schema.json",
+  "title": "Mnemosyne album proposal",
+  "description": "The strict JSON a Mnemosyne album worker emits for Mise's authoritative validator to re-check before a human approves the layout. A proposal must never silently omit, duplicate, or misassign a photo: every placement references an eligible gallery asset, each asset is placed at most once, and each (spread, slot) pair is unique.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["placements", "provider", "model"],
+  "properties": {
+    "placements": {
+      "type": "array",
+      "description": "The ordered layout: which asset sits in which slot of which spread.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["asset_id", "spread", "slot"],
+        "properties": {
+          "asset_id": {
+            "type": "integer",
+            "description": "The gallery asset id this slot holds (Mise's asset id space). Must reference a processed/ready photo belonging to this gallery."
+          },
+          "spread": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "0-based spread index within the album."
+          },
+          "slot": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "0-based slot index within the spread. Each (spread, slot) pair is unique across the proposal."
+          }
+        }
+      }
+    },
+    "provider": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Which proposer produced this layout (e.g. 'ollama', 'grok')."
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The model the proposer ran."
+    },
+    "notes": {
+      "type": "string",
+      "description": "Optional free-text rationale (e.g. why eligible photos were intentionally culled)."
+    },
+    "latency_ms": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Wall-clock latency of the proposing call in milliseconds. Reserved for the provenance pass; absent until then."
+    },
+    "cost_usd": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "description": "Inference cost of the proposing call in USD (0 for local/free inference, null when unpriced). Reserved for the provenance pass; absent until then."
+    }
+  }
+}
