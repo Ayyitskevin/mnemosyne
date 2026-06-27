@@ -49,6 +49,7 @@ from mnemosyne import (
     pipeline,
     plutus_api,
     plutus_link,
+    proposal,
     runtime,
     share,
     themes,
@@ -633,6 +634,19 @@ def show_album(
             "plutus_api_configured": plutus_api.configured(),
         },
     )
+
+
+@app.get("/albums/{album_id}/proposal.json")
+def album_proposal(
+    album_id: int,
+    user: dict = Depends(require_user),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    """The album's layout as the strict Worker-Contract JSON (owner-gated, read
+    only). This is the artifact Mise's validator re-checks: placements referencing
+    eligible gallery assets, each placed once, no slot collisions. Mutates nothing."""
+    _require_owned_album(conn, album_id, user)
+    return proposal.build_proposal(conn, album_id)
 
 
 @app.post("/albums/{album_id}/regenerate")
