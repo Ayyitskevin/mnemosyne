@@ -13,7 +13,7 @@ import getpass
 import sys
 from pathlib import Path
 
-from mnemosyne import albums, auth, config, db, pipeline, themes, usage
+from mnemosyne import albums, auth, config, db, evaluate, pipeline, themes, usage
 
 
 def _fmt_cost(cost: float | None) -> str:
@@ -79,6 +79,23 @@ def main() -> None:
     co = sub.add_parser("cost", help="show cloud-inference COGS for an album")
     co.add_argument("album_id", type=int, help="album id to price")
 
+    ev = sub.add_parser(
+        "eval", help="compare Mnemosyne's layout vs the Mise baseline (beat-the-baseline harness)"
+    )
+    ev.add_argument(
+        "--gallery", default=None,
+        help="fixture gallery name to evaluate (default: every built-in fixture)",
+    )
+    ev.add_argument(
+        "--album", type=int, default=None,
+        help="evaluate a real album by id (reads its processed photos) instead of fixtures",
+    )
+    ev.add_argument("--keeper-floor", type=float, default=0.0,
+                    help="cull photos whose keeper_score is below this (0..1)")
+    ev.add_argument("--target-count", type=int, default=None,
+                    help="cap the album to this many photos (keep the strongest)")
+    ev.add_argument("--out", default=None, help="write the comparison markdown to a file")
+
     args = parser.parse_args()
 
     if args.cmd == "adduser":
@@ -132,6 +149,66 @@ def main() -> None:
         conn = db.connect(config.DB_PATH)
         db.migrate(conn)
         _print_cost_report(usage.album_cost_report(conn, args.album_id))
+    elif args.cmd == "eval":
+        _run_eval(args)
+
+
+def _eval_album_photos(album_id: int) -> list[dict]:
+    """A real album's processed photos as evaluate-shaped dicts. Reads hero_score
+    (Mnemosyne's stored signal); a missing keeper_score falls back to hero, so this
+    works whether or not the Mise-signal columns are present."""
+    conn = db.connect(config.DB_PATH)
+    db.migrate(conn)
+    rows = conn.execute(
+        "SELECT id, hero_score, scene, width, height FROM photos "
+        "WHERE album_id = ? AND scene IS NOT NULL ORDER BY id",
+        (album_id,),
+    ).fetchall()
+    return [
+        {
+            "id": r["id"],
+            "hero_potential": r["hero_score"],
+            "scene": r["scene"],
+            "width": r["width"],
+            "height": r["height"],
+        }
+        for r in rows
+    ]
+
+
+def _run_eval(args) -> None:
+    opts: dict = {}
+    if args.keeper_floor:
+        opts["keeper_floor"] = args.keeper_floor
+    if args.target_count is not None:
+        opts["target_count"] = args.target_count
+
+    if args.album is not None:
+        photos = _eval_album_photos(args.album)
+        if not photos:
+            sys.exit(f"album {args.album} has no processed photos to evaluate")
+        galleries = {f"album-{args.album}": photos}
+    else:
+        galleries = evaluate.fixture_galleries()
+        if args.gallery:
+            if args.gallery not in galleries:
+                sys.exit(
+                    f"no such fixture gallery {args.gallery!r} "
+                    f"(have: {', '.join(galleries)})"
+                )
+            galleries = {args.gallery: galleries[args.gallery]}
+
+    docs = []
+    for name, photos in galleries.items():
+        comparison = evaluate.compare(photos, **opts)
+        docs.append(evaluate.render_markdown(comparison, title=f"Album comparison — {name}"))
+    out = "\n\n---\n\n".join(docs)
+
+    if args.out:
+        Path(args.out).write_text(out)
+        print(f"wrote {args.out}")
+    else:
+        print(out)
 
 
 if __name__ == "__main__":
