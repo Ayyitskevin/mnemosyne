@@ -176,8 +176,9 @@ def delete_album(conn: sqlite3.Connection, album_id: int) -> bool:
     )
     conn.execute("DELETE FROM spreads WHERE album_id = ?", (album_id,))
     conn.execute("DELETE FROM photos WHERE album_id = ?", (album_id,))
-    # Metering rows FK the album, so they go before it (no CASCADE in the schema).
+    # Metering + cached-proposal rows FK the album, so they go before it (no CASCADE).
     conn.execute("DELETE FROM inference_usage WHERE album_id = ?", (album_id,))
+    conn.execute("DELETE FROM proposal_cache WHERE album_id = ?", (album_id,))
     conn.execute("DELETE FROM albums WHERE id = ?", (album_id,))
     conn.commit()
 

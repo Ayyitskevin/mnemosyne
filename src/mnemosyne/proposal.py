@@ -29,9 +29,15 @@ serializer and the eligibility set read the same choice.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import sqlite3
 
 from mnemosyne import runtime
+
+# Bumped when the proposal's *shape* or the engine that fills it changes in a way that
+# should invalidate cached proposals even if a gallery's inputs are unchanged.
+_REQUEST_KEY_VERSION = "1"
 
 
 def _use_mise_ids(conn: sqlite3.Connection, album_id: int) -> bool:
@@ -202,3 +208,67 @@ def build_proposal(
     if errors:
         raise ProposalError("; ".join(errors))
     return proposal
+
+
+# --- idempotency: a stable proposal per (gallery, request) -------------------
+
+
+def request_key(conn: sqlite3.Connection, album_id: int) -> str:
+    """A deterministic fingerprint of the inputs that define an album's proposal:
+    the theme, the arrange backend, and every eligible photo's signals (id, hero,
+    keeper, scene, orientation). Identical gallery state → identical key, so a retry
+    of the same request resolves to the same cached proposal. The key is internal
+    (it never leaves the worker); it just lets retries dedup instead of recompute."""
+    arow = conn.execute(
+        "SELECT gallery_theme FROM albums WHERE id = ?", (album_id,)
+    ).fetchone()
+    theme = (arow["gallery_theme"] if arow else None) or "food"
+    parts = [
+        f"v{_REQUEST_KEY_VERSION}",
+        f"theme={theme}",
+        f"backend={runtime.arrange_backend()}",
+    ]
+    for r in conn.execute(
+        "SELECT id, hero_score, keeper_score, scene, width, height FROM photos "
+        "WHERE album_id = ? AND scene IS NOT NULL ORDER BY id",
+        (album_id,),
+    ).fetchall():
+        orient = "P" if (r["height"] or 0) > (r["width"] or 0) else "L"
+        parts.append(
+            f"{r['id']}:{r['hero_score']}:{r['keeper_score']}:{r['scene']}:{orient}"
+        )
+    return hashlib.sha256("|".join(parts).encode()).hexdigest()
+
+
+def cached_proposal(
+    conn: sqlite3.Connection, album_id: int, *, notes: str | None = None
+) -> dict:
+    """The album's proposal, idempotent per request: the first build under a request
+    key is cached and every later call with the same key returns that byte-identical
+    proposal instead of recomputing. arrange invalidates the cache whenever it
+    rewrites the layout, so the cache always reflects the current layout while
+    retries of an unchanged request stay stable. This is the read path the proposal
+    endpoint uses; build_proposal stays the pure serializer underneath."""
+    key = request_key(conn, album_id)
+    row = conn.execute(
+        "SELECT proposal FROM proposal_cache WHERE album_id = ? AND request_key = ?",
+        (album_id, key),
+    ).fetchone()
+    if row is not None:
+        return json.loads(row["proposal"])
+
+    proposal = build_proposal(conn, album_id, notes=notes)
+    conn.execute(
+        "INSERT OR REPLACE INTO proposal_cache (album_id, request_key, proposal) "
+        "VALUES (?, ?, ?)",
+        (album_id, key, json.dumps(proposal, sort_keys=True)),
+    )
+    conn.commit()
+    return proposal
+
+
+def invalidate_cache(conn: sqlite3.Connection, album_id: int) -> None:
+    """Drop an album's cached proposal(s). Called whenever the layout is rewritten
+    (arrange/regenerate) or the album is deleted, so the cache is never a stale second
+    store of authority — only a cache of the current, reproducible layout."""
+    conn.execute("DELETE FROM proposal_cache WHERE album_id = ?", (album_id,))

@@ -247,13 +247,15 @@ def arrange_album(conn: sqlite3.Connection, album_id: int) -> int:
     if usage_meta:
         usage.record(conn, album_id=album_id, photo_id=None, stage="arrange", **usage_meta)
 
-    # Clear any existing layout first (idempotent re-runs).
+    # Clear any existing layout first (idempotent re-runs). The cached proposal is
+    # derived from this layout, so drop it too — a re-arrange means a new proposal.
     conn.execute(
         "DELETE FROM placements WHERE spread_id IN "
         "(SELECT id FROM spreads WHERE album_id = ?)",
         (album_id,),
     )
     conn.execute("DELETE FROM spreads WHERE album_id = ?", (album_id,))
+    conn.execute("DELETE FROM proposal_cache WHERE album_id = ?", (album_id,))
 
     for pos, spread in enumerate(layout, start=1):
         cur = conn.execute(

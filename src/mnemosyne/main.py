@@ -644,9 +644,10 @@ def album_proposal(
 ):
     """The album's layout as the strict Worker-Contract JSON (owner-gated, read
     only). This is the artifact Mise's validator re-checks: placements referencing
-    eligible gallery assets, each placed once, no slot collisions. Mutates nothing."""
+    eligible gallery assets, each placed once, no slot collisions. Idempotent — a
+    retry returns the same cached proposal until the layout is re-arranged."""
     _require_owned_album(conn, album_id, user)
-    return proposal.build_proposal(conn, album_id)
+    return proposal.cached_proposal(conn, album_id)
 
 
 @app.post("/albums/{album_id}/regenerate")

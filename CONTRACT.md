@@ -81,7 +81,18 @@ indices are contiguous and collision-free even after manual nudges.
 `cost_usd`, with `0` for local/free inference) are reserved fields in the schema and
 populated by the provenance pass.
 
+## Idempotency
+
+A proposal is **stable per (gallery, request)**: the deterministic engine produces the
+same layout for the same inputs, and the proposal is cached under a request
+fingerprint (theme + arrange backend + each eligible photo's signals). A retry
+returns the byte-identical cached proposal instead of recomputing; re-arranging the
+album (`regenerate`) invalidates the cache so the next request reflects the new
+layout. The cache is derived state, never a second store of authority — it is
+rebuilt from the layout, and dropped when the album is.
+
 ## Endpoint
 
 `GET /albums/{album_id}/proposal.json` (owner-gated) returns the proposal for an
-album the caller owns. It is read-only and does not mutate the album.
+album the caller owns. It is read-only and does not mutate the album, and is
+idempotent — repeated calls return the same cached proposal.
