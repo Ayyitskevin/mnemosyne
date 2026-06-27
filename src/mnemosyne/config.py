@@ -44,6 +44,14 @@ MISE_API_TOKEN = (
     or None
 )
 MISE_TIMEOUT = float(os.environ.get("MNEMOSYNE_MISE_TIMEOUT", "30"))
+# Per-asset signal endpoint, relative to MISE_URL, with a {gallery_id} placeholder.
+# This is the ONE knob to retarget if Mise's real route/field names differ from the
+# assumed default — mise_client.list_assets is tolerant about the response shape, so
+# only the path is environment-driven. When the endpoint is absent or errors, the
+# import falls back to local vision (no signal read), so this can't break a build.
+MISE_ASSETS_PATH = os.environ.get(
+    "MNEMOSYNE_MISE_ASSETS_PATH", "/api/galleries/{gallery_id}/assets"
+)
 # Local mirror of Mise originals (e.g. after sync-mise-media.sh) — checked before API path.
 MISE_MEDIA_ROOT = (
     Path(os.environ["MNEMOSYNE_MISE_MEDIA_ROOT"])

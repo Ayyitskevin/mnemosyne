@@ -90,6 +90,16 @@ def process_album(conn: sqlite3.Connection, album_id: int) -> dict:
         # so a CLI album's own gallery (outside UPLOAD_DIR) is never touched.
         _maybe_remove_upload_dir(row["source_dir"])
 
+    # For a Mise-imported album, read Mise's stored per-photo hero/keeper signals
+    # onto the photo rows BEFORE the look step. Where Mise has a complete signal,
+    # look_at_album then skips that photo (scene is already set), so Mise's score is
+    # consumed rather than recomputed. A no-op for upload albums; a Mise outage is
+    # swallowed and the look step scores locally. (Local import avoids the import
+    # cycle — mise_import already imports pipeline.)
+    from mnemosyne import mise_import
+
+    mise_import.apply_mise_signals(conn, album_id)
+
     looked = vision.look_at_album(conn, album_id)
     spreads = arrange.arrange_album(conn, album_id)
     return {"album_id": album_id, "looked": looked, "spreads": spreads}
