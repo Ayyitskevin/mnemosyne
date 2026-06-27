@@ -137,7 +137,28 @@ def apply_mise_signals(conn: sqlite3.Connection, album_id: int) -> dict:
         )
         return summary
 
-    by_name = {a["filename"]: a for a in assets if a.get("filename")}
+    # Index by filename, but DROP any filename Mise lists more than once: matching is
+    # by basename, so an ambiguous name could otherwise be stamped onto the wrong
+    # photo (last-write-wins) and misassign a signal. Ambiguous names fall back to
+    # local vision instead — never a silent misassignment (the never-misassign rule).
+    by_name: dict[str, dict] = {}
+    ambiguous: set[str] = set()
+    for asset in assets:
+        name = asset.get("filename")
+        if not name:
+            continue
+        if name in by_name:
+            ambiguous.add(name)
+        by_name[name] = asset
+    for name in ambiguous:
+        by_name.pop(name, None)
+    if ambiguous:
+        log.warning(
+            "album %s: %d Mise asset filename(s) listed more than once — skipping "
+            "them (ambiguous match)",
+            album_id,
+            len(ambiguous),
+        )
     if not by_name:
         return summary
 
@@ -149,7 +170,14 @@ def apply_mise_signals(conn: sqlite3.Connection, album_id: int) -> dict:
         if asset is None:
             continue
         summary["matched"] += 1
-        complete = asset.get("scene") and asset.get("hero_potential") is not None
+        # Adopt Mise's scene + hero ONLY for a processed asset with a complete signal;
+        # an unprocessed asset's scores are provisional, so we keep its id but let the
+        # look step score it locally rather than trust a not-yet-final number.
+        complete = (
+            asset.get("processed")
+            and asset.get("scene")
+            and asset.get("hero_potential") is not None
+        )
         if complete:
             conn.execute(
                 "UPDATE photos SET mise_asset_id = ?, keeper_score = ?, "

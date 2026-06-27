@@ -55,19 +55,25 @@ indices are contiguous and collision-free even after manual nudges.
 - **Gallery** — the album already records its source gallery as
   `albums.mise_gallery_id`; that scopes the proposal.
 - **Asset id** — `asset_id` is the gallery's asset id. A Mise-imported photo carries
-  Mise's id in `photos.mise_asset_id`, so the proposal reports
-  `COALESCE(mise_asset_id, id)` — Mise's id space when known, the local `photos.id`
-  for upload albums and legacy rows. The `_asset_id_sql` chokepoint in `proposal.py`
-  is the single place that mapping lives.
+  Mise's id in `photos.mise_asset_id`. The proposal uses **one id space per album**:
+  Mise's ids when *every* photo in the album is Mise-mapped, otherwise the local
+  `photos.id` for the whole album (upload albums, legacy rows, or a partially-matched
+  import). Never a per-row fallback — a per-row mix could let one photo's local id
+  equal another's Mise id and read as a duplicate placement. The
+  `_use_mise_ids` / `_asset_id_col` chokepoint in `proposal.py` is the single place
+  this decision lives.
 - **Signals** — for a Mise import, `mise_import.apply_mise_signals` reads the
   gallery's per-photo `hero_potential` / `keeper_score` that Mise already stores
   (`mise_client.list_assets`) and stamps them onto the photo rows before the look
-  step. Where Mise supplies a complete signal (a scene label **and** a
-  hero_potential), the look step skips the photo entirely — Mise's score is
-  consumed, not recomputed. Where the signal is partial or Mise is unreachable,
-  vision scores that photo locally, so a build never fails for want of a signal. The
-  per-asset endpoint is `MNEMOSYNE_MISE_ASSETS_PATH` (the one knob to retarget if
-  Mise's route/field names differ); the client is tolerant of the response shape.
+  step. Mise's scene + hero are adopted (and the look step then skips the photo, so
+  the score is consumed not recomputed) **only when the asset is `processed` and the
+  signal is complete** — a scene label **and** a hero_potential. An unprocessed or
+  partial asset keeps its Mise id but is scored locally, so a provisional score is
+  never trusted as final and a build never fails for want of a signal. Ambiguous
+  duplicate filenames in Mise's asset list are skipped (scored locally) rather than
+  risk a misassignment. The per-asset endpoint is `MNEMOSYNE_MISE_ASSETS_PATH` (the
+  one knob to retarget if Mise's route/field names differ); the client is tolerant of
+  the response shape.
 
 ## Provenance & cost
 

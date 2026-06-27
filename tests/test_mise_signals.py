@@ -97,6 +97,28 @@ def test_normalize_drops_row_with_no_id_or_filename():
     assert mise_client._normalize_asset({"hero_potential": 0.9}) is None
 
 
+def test_normalize_nested_culling_survives_explicit_top_level_null():
+    # Argus sends top-level hero_potential: null AND the real score under culling.
+    # A plain dict.get(default) would return the null and shadow the nested value.
+    a = mise_client._normalize_asset(
+        {
+            "id": 1, "name": "x.jpg",
+            "hero_potential": None, "keeper_score": None,
+            "culling": {"hero_potential": 0.82, "keeper_score": 0.71},
+        }
+    )
+    assert a["hero_potential"] == 0.82
+    assert a["keeper_score"] == 0.71
+
+
+def test_normalize_ignores_non_string_keyword():
+    # A junk (non-string) keyword must not be concatenated literally into the label.
+    a = mise_client._normalize_asset(
+        {"id": 1, "name": "x", "shot_type": "overhead", "keywords": [None]}
+    )
+    assert a["scene"] == "overhead"
+
+
 # --- list_assets (transport) -------------------------------------------------
 
 
@@ -172,6 +194,40 @@ def test_list_assets_unexpected_body_raises(monkeypatch):
         mise_client.list_assets(1)
 
 
+def _patch_client_raises(monkeypatch, exc: Exception):
+    """A Mise client whose GET raises a transport error — exercises the real
+    timeout/connection -> MiseClientError -> fallback path, not just HTTP codes."""
+    class _Inner:
+        def get(self, url, headers=None):
+            raise exc
+
+    class _Client:
+        def __init__(self, *a, **kw):
+            pass
+
+        def __enter__(self):
+            return _Inner()
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(config, "MISE_URL", "http://mise.test")
+    monkeypatch.setattr(config, "MISE_API_TOKEN", "tok")
+    monkeypatch.setattr(mise_client.httpx, "Client", _Client)
+
+
+def test_list_assets_timeout_raises(monkeypatch):
+    _patch_client_raises(monkeypatch, mise_client.httpx.TimeoutException("slow"))
+    with pytest.raises(mise_client.MiseClientError, match="timed out"):
+        mise_client.list_assets(1)
+
+
+def test_list_assets_connection_error_raises(monkeypatch):
+    _patch_client_raises(monkeypatch, mise_client.httpx.RequestError("refused"))
+    with pytest.raises(mise_client.MiseClientError, match="unreachable"):
+        mise_client.list_assets(1)
+
+
 # --- apply_mise_signals ------------------------------------------------------
 
 
@@ -229,6 +285,93 @@ def test_apply_partial_signal_sets_id_only_leaves_scene_for_vision(conn, monkeyp
     assert a["scene"] is None
 
 
+def test_apply_does_not_adopt_unprocessed_asset(conn, monkeypatch):
+    aid = _mise_album(conn, gallery_id=9, names=["a.jpg"])
+    monkeypatch.setattr(mise_client, "configured", lambda: True)
+    # Complete-looking signal, but the asset is NOT processed → provisional. Keep the
+    # id, but don't adopt scene/hero; vision scores it locally instead.
+    monkeypatch.setattr(
+        mise_client, "list_assets",
+        lambda gid: [
+            {"asset_id": 55, "filename": "a.jpg", "hero_potential": 0.9,
+             "keeper_score": 0.8, "scene": "hero dish", "processed": False},
+        ],
+    )
+    summary = mise_import.apply_mise_signals(conn, aid)
+    assert summary == {"matched": 1, "signals_adopted": 0, "ids_only": 1}
+    a = conn.execute(
+        "SELECT mise_asset_id, hero_score, scene, keeper_score FROM photos "
+        "WHERE album_id = ?", (aid,)
+    ).fetchone()
+    assert a["mise_asset_id"] == 55 and a["keeper_score"] == 0.8
+    assert a["hero_score"] is None and a["scene"] is None
+
+
+def test_apply_adopts_zero_hero_potential(conn, monkeypatch):
+    # hero_potential 0.0 is a real, final score — must be adopted, not treated absent.
+    aid = _mise_album(conn, gallery_id=9, names=["a.jpg"])
+    monkeypatch.setattr(mise_client, "configured", lambda: True)
+    monkeypatch.setattr(
+        mise_client, "list_assets",
+        lambda gid: [
+            {"asset_id": 5, "filename": "a.jpg", "hero_potential": 0.0,
+             "keeper_score": 0.0, "scene": "throwaway", "processed": True},
+        ],
+    )
+    summary = mise_import.apply_mise_signals(conn, aid)
+    assert summary["signals_adopted"] == 1
+    a = conn.execute(
+        "SELECT hero_score, scene FROM photos WHERE album_id = ?", (aid,)
+    ).fetchone()
+    assert a["hero_score"] == 0.0 and a["scene"] == "throwaway"
+
+
+def test_apply_skips_ambiguous_duplicate_filenames(conn, monkeypatch):
+    # Mise lists the same filename twice → ambiguous → stamp NEITHER (avoid a
+    # last-write-wins misassignment); the photo falls back to local vision.
+    aid = _mise_album(conn, gallery_id=9, names=["a.jpg"])
+    monkeypatch.setattr(mise_client, "configured", lambda: True)
+    monkeypatch.setattr(
+        mise_client, "list_assets",
+        lambda gid: [
+            {"asset_id": 1, "filename": "a.jpg", "hero_potential": 0.9, "scene": "x",
+             "processed": True},
+            {"asset_id": 2, "filename": "a.jpg", "hero_potential": 0.1, "scene": "y",
+             "processed": True},
+        ],
+    )
+    summary = mise_import.apply_mise_signals(conn, aid)
+    assert summary == {"matched": 0, "signals_adopted": 0, "ids_only": 0}
+    a = conn.execute(
+        "SELECT mise_asset_id, scene FROM photos WHERE album_id = ?", (aid,)
+    ).fetchone()
+    assert a["mise_asset_id"] is None and a["scene"] is None
+
+
+def test_apply_is_idempotent_on_rerun(conn, monkeypatch):
+    aid = _mise_album(conn, gallery_id=9, names=["a.jpg"])
+    monkeypatch.setattr(mise_client, "configured", lambda: True)
+    monkeypatch.setattr(
+        mise_client, "list_assets",
+        lambda gid: [
+            {"asset_id": 7, "filename": "a.jpg", "hero_potential": 0.6,
+             "keeper_score": 0.6, "scene": "dish", "processed": True},
+        ],
+    )
+    first = mise_import.apply_mise_signals(conn, aid)
+    before = conn.execute(
+        "SELECT mise_asset_id, hero_score, keeper_score, scene FROM photos "
+        "WHERE album_id = ?", (aid,)
+    ).fetchone()
+    second = mise_import.apply_mise_signals(conn, aid)
+    after = conn.execute(
+        "SELECT mise_asset_id, hero_score, keeper_score, scene FROM photos "
+        "WHERE album_id = ?", (aid,)
+    ).fetchone()
+    assert first == second
+    assert tuple(before) == tuple(after)   # a re-run leaves the rows unchanged
+
+
 def test_apply_swallows_mise_failure(conn, monkeypatch):
     aid = _mise_album(conn, gallery_id=9, names=["a.jpg"])
     monkeypatch.setattr(mise_client, "configured", lambda: True)
@@ -256,8 +399,10 @@ def test_proposal_reports_mise_asset_id_when_present(conn, monkeypatch):
     monkeypatch.setattr(
         mise_client, "list_assets",
         lambda gid: [
-            {"asset_id": 900, "filename": "a.jpg", "hero_potential": 0.9, "scene": "x"},
-            {"asset_id": 901, "filename": "b.jpg", "hero_potential": 0.5, "scene": "y"},
+            {"asset_id": 900, "filename": "a.jpg", "hero_potential": 0.9, "scene": "x",
+             "processed": True},
+            {"asset_id": 901, "filename": "b.jpg", "hero_potential": 0.5, "scene": "y",
+             "processed": True},
         ],
     )
     mise_import.apply_mise_signals(conn, aid)
@@ -322,7 +467,7 @@ def test_process_album_skips_vision_for_mise_scored_photo(conn, tmp_path, monkey
         mise_client, "list_assets",
         lambda gid: [
             {"asset_id": 800, "filename": "a.jpg", "hero_potential": 0.95,
-             "keeper_score": 0.8, "scene": "mise hero"},
+             "keeper_score": 0.8, "scene": "mise hero", "processed": True},
         ],
     )
     # Count look-step calls: only b.jpg (no Mise signal) should hit vision.
