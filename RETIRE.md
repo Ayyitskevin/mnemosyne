@@ -71,8 +71,10 @@ the storage probe — the single endpoint to check before and after turning thin
 
 ## Statelessness invariants (what keeps this true)
 
-- **No media duplication** in reference mode: originals are read in place, never copied
-  into a second store.
+- **No media duplication** in reference mode (`MNEMOSYNE_REFERENCE_MISE_ORIGINALS=true`,
+  local storage + Mise imports): originals are read in place — the photo's storage_key
+  is the original's path — never copied into a second store. `/healthz` reports
+  `reference_mise_originals` so the posture is observable.
 - **No second authority store**: the layout is a reproducible cache; Mise validates.
 - **Reproducible outputs**: the deterministic engine yields a stable proposal per
   (gallery, request), so a rebuilt cache matches the original.

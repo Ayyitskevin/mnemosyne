@@ -36,6 +36,7 @@ def backend_status() -> dict[str, str | bool]:
         "arrange": arrange,
         "arrange_model": _arrange_model_label(arrange),
         "storage": config.STORAGE_BACKEND,
+        "reference_mise_originals": reference_originals(),
         "public_url": bool(config.PUBLIC_URL),
         "plutus_url": bool(config.PLUTUS_URL),
         "mise_import": bool(config.MISE_URL and config.MISE_API_TOKEN),
@@ -44,6 +45,16 @@ def backend_status() -> dict[str, str | bool]:
             config.GROK_PRICE_PROMPT_PER_M or config.GROK_PRICE_COMPLETION_PER_M
         ),
     }
+
+
+def reference_originals() -> bool:
+    """Whether Mise imports reference originals in place (no media duplication) rather
+    than copying them — true only when opted in and on local storage. Surfaced on
+    /healthz so the retire-readiness posture is observable."""
+    return bool(
+        config.REFERENCE_MISE_ORIGINALS
+        and (config.STORAGE_BACKEND or "local").strip().lower() == "local"
+    )
 
 
 def _vision_model_label(backend: str) -> str:
