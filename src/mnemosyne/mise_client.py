@@ -71,6 +71,17 @@ def _coerce_unit(value: Any) -> float | None:
         return None
 
 
+def _present(*values: Any) -> Any:
+    """First value that is not None. Unlike `dict.get(key, fallback)`, this falls
+    through a key that is *present but null* — Argus's shape sends a top-level
+    `hero_potential: null` alongside the real score under `culling`, and a plain
+    `.get` would return that null and shadow the nested value."""
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
 def _normalize_asset(raw: dict[str, Any]) -> dict[str, Any] | None:
     """Map ONE Mise asset row to the fields the importer needs, tolerant of the
     exact key names so a small Mise-side rename doesn't silently drop signals. This
@@ -110,17 +121,13 @@ def _normalize_asset(raw: dict[str, Any]) -> dict[str, Any] | None:
     if asset_id is None and not filename:
         return None
 
-    hero = _coerce_unit(
-        raw.get("hero_potential", culling.get("hero_potential"))
-    )
-    keeper = _coerce_unit(
-        raw.get("keeper_score", culling.get("keeper_score"))
-    )
+    hero = _coerce_unit(_present(raw.get("hero_potential"), culling.get("hero_potential")))
+    keeper = _coerce_unit(_present(raw.get("keeper_score"), culling.get("keeper_score")))
 
     label = raw.get("scene") or raw.get("shot_type")
     if label:
         keywords = raw.get("keywords") or []
-        if isinstance(keywords, list) and keywords:
+        if isinstance(keywords, list) and keywords and isinstance(keywords[0], str):
             label = f"{label} {keywords[0]}"
         label = str(label).strip()[:120]
     else:

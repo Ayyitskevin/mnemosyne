@@ -125,12 +125,22 @@ def validate_proposal(
     return errors
 
 
-def eligible_asset_ids(conn: sqlite3.Connection, album_id: int) -> set[int]:
+def eligible_asset_ids(
+    conn: sqlite3.Connection, album_id: int, *, use_mise: bool | None = None
+) -> set[int]:
     """The gallery assets a placement is allowed to reference. For the standalone
     (upload) album this is every photo in the album that the look step has scored —
     i.e. processed/ready, mirroring Mise's eligibility. (The Mise-import path will
-    narrow this to Mise's own processed set once per-asset signals are read.)"""
-    col = _asset_id_col(_use_mise_ids(conn, album_id))
+    narrow this to Mise's own processed set once per-asset signals are read.)
+
+    Pass `use_mise` to reuse an id-space decision already taken for the matching
+    build_proposal call: building the proposal and computing its eligibility are two
+    DB reads, and if a Mise import stamps the album's last mise_asset_id between them
+    the recomputed decision could flip, leaving the two sides in different id spaces.
+    A shared `use_mise` keeps them in lockstep."""
+    if use_mise is None:
+        use_mise = _use_mise_ids(conn, album_id)
+    col = _asset_id_col(use_mise)
     rows = conn.execute(
         f"SELECT {col} AS asset_id FROM photos "
         "WHERE album_id = ? AND scene IS NOT NULL",
@@ -140,7 +150,11 @@ def eligible_asset_ids(conn: sqlite3.Connection, album_id: int) -> set[int]:
 
 
 def build_proposal(
-    conn: sqlite3.Connection, album_id: int, *, notes: str | None = None
+    conn: sqlite3.Connection,
+    album_id: int,
+    *,
+    notes: str | None = None,
+    use_mise: bool | None = None,
 ) -> dict:
     """Serialize an album's spreads/placements into the strict proposal JSON.
 
@@ -149,13 +163,19 @@ def build_proposal(
     `validate_proposal` before returning, so a malformed proposal raises
     ProposalError here rather than reaching Mise — defense in depth for the
     never-silently-omit/duplicate/misassign guardrail.
+
+    `use_mise` pins the id-space decision; pass the same value to a paired
+    eligible_asset_ids call so the proposal and its eligibility set can't drift into
+    different id spaces if a Mise import commits between the two reads.
     """
+    if use_mise is None:
+        use_mise = _use_mise_ids(conn, album_id)
     spread_rows = conn.execute(
         "SELECT id FROM spreads WHERE album_id = ? ORDER BY position, id",
         (album_id,),
     ).fetchall()
 
-    col = _asset_id_col(_use_mise_ids(conn, album_id), "p.")
+    col = _asset_id_col(use_mise, "p.")
     placements: list[dict] = []
     for spread_idx, spread in enumerate(spread_rows):
         photo_rows = conn.execute(

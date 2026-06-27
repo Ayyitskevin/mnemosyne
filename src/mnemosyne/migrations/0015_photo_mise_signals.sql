@@ -6,8 +6,11 @@
 -- possible without disturbing the standalone (upload) path:
 --
 --   mise_asset_id — the asset's id in Mise's id space. NULL for upload albums and
---     legacy rows; the proposal reports COALESCE(mise_asset_id, id) so a placement
---     references Mise's id when known and falls back to the local id otherwise.
+--     legacy rows. The proposal reports Mise's ids only when EVERY photo in the
+--     album is mapped (see proposal._use_mise_ids); otherwise it reports the local
+--     photos.id for the whole album. One id space per album, never a per-row
+--     COALESCE(mise_asset_id, id) — a per-row fallback could emit one photo's local
+--     id equal to another photo's Mise id and read as a duplicate placement.
 --   keeper_score  — Mise's per-photo keeper signal (0..1), the input a later
 --     intentional-cull pass reads. NULL until a Mise import populates it.
 --
