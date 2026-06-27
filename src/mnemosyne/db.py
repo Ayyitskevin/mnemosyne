@@ -7,6 +7,7 @@ settings (and the schema) live in exactly one place. Mirrors the Athena pattern.
 from __future__ import annotations
 
 import sqlite3
+import time
 from pathlib import Path
 
 # The .sql migration files live next to this module, in migrations/.
@@ -17,12 +18,37 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
     """Open a connection with the settings mnemosyne always wants."""
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row              # rows act like dicts: row["name"]
-    conn.execute("PRAGMA journal_mode = WAL")   # readers don't block the writer
+    conn.execute("PRAGMA busy_timeout = 5000")  # install the busy handler FIRST, so
+    # the lock waits below honor it — the background worker and request handlers write
+    # the same file concurrently, and WAL still allows only one writer at a time.
+    _enable_wal(conn)
     conn.execute("PRAGMA foreign_keys = ON")    # actually enforce REFERENCES
-    conn.execute("PRAGMA busy_timeout = 5000")  # wait up to 5s for a lock instead
-    # of erroring — the background worker and request handlers now write the same
-    # file concurrently, and WAL still allows only one writer at a time.
     return conn
+
+
+def _enable_wal(conn: sqlite3.Connection) -> None:
+    """Put the database in WAL mode, tolerant of a concurrent startup.
+
+    WAL is a PERSISTENT property of the database file, so it only needs to be set
+    once — every later connection inherits it. So we read the current mode and only
+    switch when it isn't already WAL; a second process booting at the same time then
+    skips the switch entirely instead of fighting for it. The switch itself needs a
+    brief exclusive moment and can return SQLITE_BUSY ('database is locked') *without*
+    honoring the busy timeout when another connection is mid-write (e.g. a sibling
+    applying migrations under BEGIN IMMEDIATE), so on the rare first-creation race we
+    retry it with a short backoff rather than letting that transient lock crash boot.
+    """
+    for attempt in range(10):
+        try:
+            mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+            if str(mode).lower() == "wal":
+                return
+            conn.execute("PRAGMA journal_mode = WAL")
+            return
+        except sqlite3.OperationalError:
+            if attempt == 9:
+                raise
+            time.sleep(0.05 * (attempt + 1))
 
 
 def _apply_sql(conn: sqlite3.Connection, sql: str) -> None:
