@@ -10,7 +10,7 @@ import shutil
 import sqlite3
 from pathlib import Path
 
-from mnemosyne import arrange, config, ingest, storage, vision
+from mnemosyne import arrange, config, ingest, runtime, storage, vision
 
 
 def build_album(
@@ -64,6 +64,14 @@ def enqueue_album(
     )
 
 
+def _reference_originals(mise_gallery_id: int | None) -> bool:
+    """Whether to reference originals in place rather than copy them. Only for a Mise
+    import (durable, Mise-owned media); uploads land in an ephemeral staging dir, so
+    they always copy. runtime.reference_originals() carries the opt-in + local-storage
+    gate, kept in one place so /healthz reports exactly what ingest does."""
+    return mise_gallery_id is not None and runtime.reference_originals()
+
+
 def process_album(conn: sqlite3.Connection, album_id: int) -> dict:
     """Run the pipeline for an already-created album: ingest its source folder
     (once), look at every photo, lay out the spreads. This is the worker's body.
@@ -74,7 +82,7 @@ def process_album(conn: sqlite3.Connection, album_id: int) -> dict:
     or its source folder is gone — the worker turns that into a 'failed' status.
     """
     row = conn.execute(
-        "SELECT source_dir FROM albums WHERE id = ?", (album_id,)
+        "SELECT source_dir, mise_gallery_id FROM albums WHERE id = ?", (album_id,)
     ).fetchone()
     if row is None:
         raise LookupError(f"no such album: {album_id}")
@@ -83,12 +91,16 @@ def process_album(conn: sqlite3.Connection, album_id: int) -> dict:
         "SELECT COUNT(*) AS n FROM photos WHERE album_id = ?", (album_id,)
     ).fetchone()["n"]
     if already == 0:
-        ingest.ingest_photos(conn, album_id, row["source_dir"])
-        # Ingest has now copied each photo's bytes into storage under an `a<id>/`
-        # key, so the web upload's staging folder is a redundant second copy. Drop
-        # it to avoid silently doubling disk per album (R20). Containment-guarded,
-        # so a CLI album's own gallery (outside UPLOAD_DIR) is never touched.
-        _maybe_remove_upload_dir(row["source_dir"])
+        reference = _reference_originals(row["mise_gallery_id"])
+        ingest.ingest_photos(conn, album_id, row["source_dir"], reference=reference)
+        if not reference:
+            # Copy mode: ingest has now copied each photo's bytes into storage under an
+            # `a<id>/` key, so the web upload's staging folder is a redundant second
+            # copy. Drop it to avoid silently doubling disk per album (R20).
+            # Containment-guarded, so a CLI album's own gallery (outside UPLOAD_DIR) is
+            # never touched. In reference mode there's no second copy AND the source is
+            # Mise's durable media — so we must NOT remove it.
+            _maybe_remove_upload_dir(row["source_dir"])
 
     # For a Mise-imported album, read Mise's stored per-photo hero/keeper signals
     # onto the photo rows BEFORE the look step. Where Mise has a complete signal,

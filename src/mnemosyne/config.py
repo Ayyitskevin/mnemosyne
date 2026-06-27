@@ -109,6 +109,18 @@ UPLOAD_DIR = Path(os.environ.get("MNEMOSYNE_UPLOAD_DIR", "uploads"))
 # swap; ingest/vision/export/web never change because they speak only the seam.
 STORAGE_BACKEND = os.environ.get("MNEMOSYNE_STORAGE_BACKEND", "local")
 
+# Retire-readiness / no-media-duplication: when true (and on local storage), a
+# Mise-imported album REFERENCES the gallery's originals in place instead of copying
+# their bytes into mnemosyne's own store — Mise owns the media, mnemosyne keeps only
+# a layout cache. The photo's storage_key becomes the original's absolute path, which
+# the local driver serves as a passthrough; deletion is containment-guarded so the
+# referenced originals are never removed. OPT-IN (default off) so the existing copy
+# behavior is unchanged; only applies to Mise imports on local storage (uploads land
+# in an ephemeral staging dir, and R2 can't reference a local path, so both still copy).
+REFERENCE_MISE_ORIGINALS = os.environ.get(
+    "MNEMOSYNE_REFERENCE_MISE_ORIGINALS", ""
+).strip().lower() in {"1", "true", "yes"}
+
 # Cloudflare R2 (S3-compatible) settings — read only when STORAGE_BACKEND=r2. All
 # secrets live in .env (gitignored, per-machine), NEVER in the repo. Unset until a
 # real bucket exists; the R2 driver fails loud if selected without these. ENDPOINT

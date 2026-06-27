@@ -56,13 +56,23 @@ def create_album(
 
 
 def ingest_photos(
-    conn: sqlite3.Connection, album_id: int, source_dir: str | Path
+    conn: sqlite3.Connection,
+    album_id: int,
+    source_dir: str | Path,
+    *,
+    reference: bool = False,
 ) -> int:
     """Record every image in source_dir as a photo under an EXISTING album, and
     return how many were added. Split out from album creation so the background
     worker can ingest into the pending album it's processing. Files are taken in
     sorted filename order — for camera/Lightroom exports that's usually
-    chronological, giving the arrange step a sane starting sequence."""
+    chronological, giving the arrange step a sane starting sequence.
+
+    `reference=True` (no media duplication): record each photo's storage_key as the
+    original's ABSOLUTE path and DON'T copy its bytes into mnemosyne's store. The
+    local driver serves an absolute key as a passthrough, so the originals stay where
+    their owner (Mise) keeps them and mnemosyne holds only the layout. Used for a Mise
+    import on local storage; the default (copy) is unchanged for uploads and R2."""
     src = Path(source_dir).expanduser()
     if not src.is_dir():
         raise NotADirectoryError(f"not a folder: {src}")
@@ -72,16 +82,22 @@ def ingest_photos(
     for path in sorted(src.iterdir()):
         if path.suffix.lower() not in IMAGE_SUFFIXES:
             continue
-        # Read the full bytes and hand them to the storage driver — the bytes enter
-        # storage THROUGH the seam, so they land on local disk today or in a bucket
-        # tomorrow with no change here. The key is opaque + album-scoped, so two
-        # albums can hold a same-named file and a whole album's bytes drop in one
-        # delete_prefix later. Dimensions come from those same bytes (no second read).
-        data = path.read_bytes()
-        with Image.open(io.BytesIO(data)) as im:
-            width, height = ImageOps.exif_transpose(im).size
-        key = f"a{album_id}/{path.name}"
-        store.put(key, data)
+        if reference:
+            # Reference the original in place: read it only to measure dimensions
+            # (a read, not a second copy); the absolute path becomes the storage key.
+            with Image.open(path) as im:
+                width, height = ImageOps.exif_transpose(im).size
+            key = str(path.resolve())
+        else:
+            # Copy the bytes THROUGH the seam — they land on local disk today or in a
+            # bucket tomorrow with no change here. The key is opaque + album-scoped, so
+            # two albums can hold a same-named file and a whole album's bytes drop in
+            # one delete_prefix later. Dimensions come from those same bytes.
+            data = path.read_bytes()
+            with Image.open(io.BytesIO(data)) as im:
+                width, height = ImageOps.exif_transpose(im).size
+            key = f"a{album_id}/{path.name}"
+            store.put(key, data)
         conn.execute(
             "INSERT INTO photos (album_id, storage_key, width, height) "
             "VALUES (?, ?, ?, ?)",
