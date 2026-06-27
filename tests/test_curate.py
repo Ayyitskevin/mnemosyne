@@ -135,3 +135,75 @@ def test_keeper_absent_falls_back_to_hero():
     selected, omitted = curate.select_and_sequence(photos, keeper_floor=0.5)
     assert _ids(selected) == {1}
     assert {o["id"] for o in omitted} == {2}
+
+
+# --- narrative-arc sequencing ------------------------------------------------
+
+
+def _sp(pid: int, hero: float, scene: str, keeper: float = 0.9) -> dict:
+    return {"id": pid, "hero_potential": hero, "keeper_score": keeper, "scene": scene}
+
+
+def test_middle_is_ordered_by_the_theme_arc_not_capture_order():
+    # Scrambled capture ids; the body should reorder along the wedding arc while the
+    # best hero covers and the strongest remaining hero closes.
+    photos = [
+        _sp(1, 0.2, "getting ready detail"),
+        _sp(2, 0.2, "reception candids"),
+        _sp(3, 0.2, "wide ceremony establishing shot"),
+        _sp(4, 0.65, "couple portrait"),    # best hero -> cover
+        _sp(5, 0.5, "family group"),        # 2nd hero -> closer
+    ]
+    selected, _ = curate.select_and_sequence(photos, theme="wedding")
+    # cover, [getting-ready -> ceremony -> reception], closer
+    assert [p["id"] for p in selected] == [4, 1, 3, 2, 5]
+
+
+def test_unlabelled_middle_stays_chronological():
+    # Without scene labels the arc can't classify, so the body falls back to id order.
+    # Distinct cover (0.9) and closer (0.5) so the middle three are unambiguous.
+    photos = [_photo(p, 0.3, 0.9) for p in (1, 2, 3)] + [
+        _photo(8, 0.5, 0.9), _photo(9, 0.9, 0.9)
+    ]
+    ids = [p["id"] for p in curate.select_and_sequence(photos)[0]]
+    assert ids[0] == 9            # best hero covers
+    assert ids[-1] == 8           # next-best hero closes
+    assert ids[1:-1] == [1, 2, 3]  # the unlabelled middle stays chronological
+
+
+# --- variable-pacing (anchor tier) -------------------------------------------
+
+
+def test_anchor_hero_leads_a_smaller_spread_than_filler():
+    selected = [
+        _photo(1, 0.75),  # anchor (>= 0.7) -> caps its spread at anchor_max
+        _photo(2, 0.4),
+        _photo(3, 0.4),
+        _photo(4, 0.4),
+        _photo(5, 0.4),
+    ]
+    spreads = curate.group_into_spreads(
+        selected, solo_hero_floor=0.85, anchor_hero_floor=0.7, anchor_max=2,
+        max_per_spread=4,
+    )
+    # First spread is the anchor's, capped at 2 (the anchor + one supporting shot);
+    # the filler then packs into a larger spread — varied pacing, not a flat N.
+    assert spreads[0]["photos"] == [1, 2] and spreads[0]["hero"] == 1
+    assert max(len(s["photos"]) for s in spreads) > 2
+
+
+def test_three_pacing_tiers_coexist_and_place_each_once():
+    selected = [
+        _photo(1, 0.95),  # solo
+        _photo(2, 0.75),  # anchor
+        _photo(3, 0.4),
+        _photo(4, 0.4),
+        _photo(5, 0.4),
+        _photo(6, 0.4),
+    ]
+    spreads = curate.group_into_spreads(selected)
+    sizes = sorted(len(s["photos"]) for s in spreads)
+    assert 1 in sizes and max(sizes) >= 3          # a solo and a packed spread exist
+    placed = [pid for s in spreads for pid in s["photos"]]
+    assert sorted(placed) == [1, 2, 3, 4, 5, 6]    # everything placed once
+    assert spreads[0]["photos"] == [1]             # the standout opens, full-bleed

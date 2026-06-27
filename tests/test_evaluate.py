@@ -133,3 +133,21 @@ def test_fixtures_produce_valid_comparisons():
         comp = evaluate.compare(photos, keeper_floor=0.3)
         assert comp["baseline"]["scorecard"]["valid"] is True, name
         assert comp["mnemosyne"]["scorecard"]["valid"] is True, name
+
+
+def test_compare_threads_theme_into_arc_sequencing():
+    photos = [
+        {"id": 1, "hero_potential": 0.3, "keeper_score": 0.9,
+         "scene": "reception candids", "width": 1200, "height": 800},
+        {"id": 2, "hero_potential": 0.3, "keeper_score": 0.9,
+         "scene": "getting ready detail", "width": 1200, "height": 800},
+        {"id": 3, "hero_potential": 0.6, "keeper_score": 0.9,
+         "scene": "couple portrait", "width": 1200, "height": 800},
+        {"id": 4, "hero_potential": 0.5, "keeper_score": 0.9,
+         "scene": "wide ceremony establishing shot", "width": 1200, "height": 800},
+    ]
+    comp = evaluate.compare(photos, theme="wedding")
+    order = [p["asset_id"] for p in comp["mnemosyne"]["proposal"]["placements"]]
+    # The body follows the wedding arc: getting-ready (2) before reception (1).
+    assert order.index(2) < order.index(1)
+    assert comp["mnemosyne"]["scorecard"]["valid"] is True

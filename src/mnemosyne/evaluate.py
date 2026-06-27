@@ -133,21 +133,28 @@ def compute_acceptance(checklist: list[dict]) -> dict:
 def compare(
     photos: list[dict],
     *,
+    theme: str | None = "food",
     baseline_per_spread: int = 4,
     keeper_floor: float = 0.0,
     target_count: int | None = None,
     solo_hero_floor: float = 0.85,
+    anchor_hero_floor: float = 0.7,
+    anchor_max: int = 2,
     max_per_spread: int = 4,
 ) -> dict:
     """Build the baseline and the Mnemosyne layout for one gallery, validate both,
     score both, and bundle a human-review checklist. The returned dict is the full
-    comparison artifact (also renderable as Markdown)."""
+    comparison artifact (also renderable as Markdown). `theme` drives the narrative
+    arc Mnemosyne sequences along."""
     base_spreads = baseline.baseline_layout(photos, per_spread=baseline_per_spread)
     layout = curate.mnemosyne_layout(
         photos,
+        theme=theme,
         keeper_floor=keeper_floor,
         target_count=target_count,
         solo_hero_floor=solo_hero_floor,
+        anchor_hero_floor=anchor_hero_floor,
+        anchor_max=anchor_max,
         max_per_spread=max_per_spread,
     )
     mnem_spreads, omitted = layout["spreads"], layout["omitted"]

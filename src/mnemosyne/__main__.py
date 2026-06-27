@@ -94,6 +94,9 @@ def main() -> None:
                     help="cull photos whose keeper_score is below this (0..1)")
     ev.add_argument("--target-count", type=int, default=None,
                     help="cap the album to this many photos (keep the strongest)")
+    ev.add_argument("--theme", default=None,
+                    help="story arc to sequence along "
+                         f"({', '.join(themes.THEMES)}); default: per fixture/album")
     ev.add_argument("--out", default=None, help="write the comparison markdown to a file")
 
     args = parser.parse_args()
@@ -153,18 +156,22 @@ def main() -> None:
         _run_eval(args)
 
 
-def _eval_album_photos(album_id: int) -> list[dict]:
-    """A real album's processed photos as evaluate-shaped dicts. Reads hero_score
-    (Mnemosyne's stored signal); a missing keeper_score falls back to hero, so this
-    works whether or not the Mise-signal columns are present."""
+def _eval_album(album_id: int) -> tuple[list[dict], str]:
+    """A real album's processed photos as evaluate-shaped dicts, plus its theme.
+    Reads hero_score (Mnemosyne's stored signal); a missing keeper_score falls back
+    to hero, so this works whether or not the Mise-signal columns are present."""
     conn = db.connect(config.DB_PATH)
     db.migrate(conn)
+    arow = conn.execute(
+        "SELECT gallery_theme FROM albums WHERE id = ?", (album_id,)
+    ).fetchone()
+    theme = (arow["gallery_theme"] if arow else None) or "food"
     rows = conn.execute(
         "SELECT id, hero_score, scene, width, height FROM photos "
         "WHERE album_id = ? AND scene IS NOT NULL ORDER BY id",
         (album_id,),
     ).fetchall()
-    return [
+    photos = [
         {
             "id": r["id"],
             "hero_potential": r["hero_score"],
@@ -174,6 +181,7 @@ def _eval_album_photos(album_id: int) -> list[dict]:
         }
         for r in rows
     ]
+    return photos, theme
 
 
 def _run_eval(args) -> None:
@@ -183,24 +191,32 @@ def _run_eval(args) -> None:
     if args.target_count is not None:
         opts["target_count"] = args.target_count
 
+    # galleries: name -> (photos, theme). A --theme override wins; otherwise a real
+    # album uses its own gallery_theme and a fixture derives its theme from its name.
+    galleries: dict[str, tuple[list[dict], str]] = {}
     if args.album is not None:
-        photos = _eval_album_photos(args.album)
+        photos, theme = _eval_album(args.album)
         if not photos:
             sys.exit(f"album {args.album} has no processed photos to evaluate")
-        galleries = {f"album-{args.album}": photos}
+        galleries[f"album-{args.album}"] = (photos, theme)
     else:
-        galleries = evaluate.fixture_galleries()
+        fixtures = evaluate.fixture_galleries()
         if args.gallery:
-            if args.gallery not in galleries:
+            if args.gallery not in fixtures:
                 sys.exit(
                     f"no such fixture gallery {args.gallery!r} "
-                    f"(have: {', '.join(galleries)})"
+                    f"(have: {', '.join(fixtures)})"
                 )
-            galleries = {args.gallery: galleries[args.gallery]}
+            fixtures = {args.gallery: fixtures[args.gallery]}
+        galleries = {
+            name: (photos, themes.normalize_theme(name))
+            for name, photos in fixtures.items()
+        }
 
     docs = []
-    for name, photos in galleries.items():
-        comparison = evaluate.compare(photos, **opts)
+    for name, (photos, theme) in galleries.items():
+        theme = themes.normalize_theme(args.theme) if args.theme else theme
+        comparison = evaluate.compare(photos, theme=theme, **opts)
         docs.append(evaluate.render_markdown(comparison, title=f"Album comparison — {name}"))
     out = "\n\n---\n\n".join(docs)
 
